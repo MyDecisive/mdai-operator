@@ -66,6 +66,9 @@ spec:
         - containerPort: 9443
           name: webhook-server
           protocol: TCP
+        - containerPort: 4320
+          name: opamp-server
+          protocol: TCP
         readinessProbe:
           httpGet:
             path: /readyz

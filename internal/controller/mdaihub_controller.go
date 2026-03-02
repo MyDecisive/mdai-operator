@@ -9,6 +9,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/mydecisive/mdai-data-core/opamp"
+
 	"github.com/cenkalti/backoff/v5"
 	"github.com/go-logr/logr"
 	mdaiv1 "github.com/mydecisive/mdai-operator/api/v1"
@@ -46,12 +48,13 @@ var _ Controller = (*MdaiHubReconciler)(nil)
 type MdaiHubReconciler struct {
 	client.Client
 
-	ZapLogger    *zap.Logger
-	Scheme       *runtime.Scheme
-	Recorder     record.EventRecorder
-	ValKeyClient valkey.Client
-	ValkeyEvents chan event.GenericEvent
-	ValkeyExpiry time.Duration
+	ZapLogger              *zap.Logger
+	Scheme                 *runtime.Scheme
+	Recorder               record.EventRecorder
+	ValKeyClient           valkey.Client
+	ValkeyEvents           chan event.GenericEvent
+	ValkeyExpiry           time.Duration
+	AgentConnectionManager opamp.ConnectionManager
 }
 
 // +kubebuilder:rbac:groups=hub.mydecisive.ai,resources=mdaihubs,verbs=get;list;watch;create;update;patch;delete
@@ -84,7 +87,17 @@ func (r *MdaiHubReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
-	_, err := r.ReconcileHandler(ctx, *NewHubAdapter(fetchedCR, log, r.ZapLogger, r.Client, r.Recorder, r.Scheme, r.ValKeyClient, r.ValkeyExpiry))
+	_, err := r.ReconcileHandler(ctx, *NewHubAdapter(
+		fetchedCR,
+		log,
+		r.ZapLogger,
+		r.Client,
+		r.Recorder,
+		r.Scheme,
+		r.ValKeyClient,
+		r.ValkeyExpiry,
+		r.AgentConnectionManager,
+	))
 	if err != nil {
 		return ctrl.Result{}, err
 	}

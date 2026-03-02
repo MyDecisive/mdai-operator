@@ -348,7 +348,7 @@ func validateAction(actionPath *field.Path, action mdaiv1.Action, knownVarKeys m
 		return field.ErrorList{field.Invalid(actionPath, "<action>", errAtLeastOneAction)}
 	}
 
-	return actions[presentIdx].validate()
+	return actions[presentIdx].validate() // nolint: gosec
 }
 
 func validateVariableAction(path *field.Path, variableKey string, knownVarKeys map[string]struct{}, childPath string) field.ErrorList {

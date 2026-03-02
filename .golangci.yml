@@ -13,6 +13,7 @@ linters:
     - err113
     - funlen
     - gocognit
+    - godoclint
     - godot
     - gochecknoglobals
     - godox

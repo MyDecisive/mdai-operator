@@ -72,7 +72,7 @@ jobs:
         uses: golangci/golangci-lint-action@v8
         with:
           install-mode: "binary"
-          version: v2.4
+          version: v2.8
 
       - name: Running Tests
         run: make test-coverage

@@ -220,6 +220,10 @@ github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 h1:C3w9PqII01/Oq
 github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822/go.mod h1:+n7T8mK8HuQTcFwEeznm/DIxMOiR9yIdICNftLE1DvQ=
 github.com/mwitkow/go-conntrack v0.0.0-20190716064945-2f068394615f h1:KUppIJq7/+SVif2QVs3tOP0zanoHgBEVAwHxUSIzRqU=
 github.com/mwitkow/go-conntrack v0.0.0-20190716064945-2f068394615f/go.mod h1:qRWi+5nqEBWmkhHvq77mSJWrCKwh8bxhgT7d/eI7P4U=
+github.com/mydecisive/mdai-data-core v0.2.10-0.20260302145941-7390f34c60b4 h1:TUgfMQDoJ3luFQT24GDm+oL6BXd7xKRi9qj1z4jE5qk=
+github.com/mydecisive/mdai-data-core v0.2.10-0.20260302145941-7390f34c60b4/go.mod h1:g3qwKbaPm3p+zTVtjsl2rAqdy5lAwsmn4WerCNWu2Bo=
+github.com/mydecisive/mdai-data-core v0.2.10-0.20260302153347-46d6f44d02c0 h1:f1xoZiYgmTdAeJ0+kSAQnsi91zOnz3YNKRl1SDn9fPQ=
+github.com/mydecisive/mdai-data-core v0.2.10-0.20260302153347-46d6f44d02c0/go.mod h1:g3qwKbaPm3p+zTVtjsl2rAqdy5lAwsmn4WerCNWu2Bo=
 github.com/mydecisive/mdai-data-core v0.3.0 h1:gnFdr+ntTrbK68NRWBEuou4n9EiaY+8RCOkv4QHtI1c=
 github.com/mydecisive/mdai-data-core v0.3.0/go.mod h1:g3qwKbaPm3p+zTVtjsl2rAqdy5lAwsmn4WerCNWu2Bo=
 github.com/oklog/ulid v1.3.1 h1:EGfNDEx6MqHz8B3uNV6QAib1UR2Lm97sHi3ocA6ESJ4=
@@ -228,6 +232,8 @@ github.com/onsi/ginkgo/v2 v2.23.4 h1:ktYTpKJAVZnDT4VjxSbiBenUjmlL/5QkBEocaWXiQus
 github.com/onsi/ginkgo/v2 v2.23.4/go.mod h1:Bt66ApGPBFzHyR+JO10Zbt0Gsp4uWxu5mIOTusL46e8=
 github.com/onsi/gomega v1.37.0 h1:CdEG8g0S133B4OswTDC/5XPSzE1OeP29QOioj2PID2Y=
 github.com/onsi/gomega v1.37.0/go.mod h1:8D9+Txp43QWKhM24yyOBEdpkzN8FvJyAwecBgsU4KU0=
+github.com/open-telemetry/opamp-go v0.22.0 h1:7UnsQgFFS7ffM09JQk+9aGVBAAlsLfcooZ9xvSYwxWM=
+github.com/open-telemetry/opamp-go v0.22.0/go.mod h1:339N71soCPrhHywbAcKUZJDODod581ZOxCpTkrl3zYQ=
 github.com/open-telemetry/opentelemetry-operator v0.131.0 h1:UTZZG8jh51q5Dzd70JZWN/6s9cY+dLomhSzoV2bQeLo=
 github.com/open-telemetry/opentelemetry-operator v0.131.0/go.mod h1:D4Z+Ed4NJ3Vcxt2z3XZETbeWQGLzJN8h79KslqF5A5k=
 github.com/opencontainers/go-digest v1.0.0 h1:apOUWs51W5PlhuyGyz9FCeeBIOUDA/6nW8Oi/yOhh5U=

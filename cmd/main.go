@@ -5,12 +5,14 @@ import (
 	"context"
 	"crypto/tls"
 	"flag"
+	"net/http"
 	"os"
 	"path/filepath"
 
-	"sigs.k8s.io/controller-runtime/pkg/manager"
-
 	"github.com/go-logr/zapr"
+	"github.com/google/uuid"
+	"github.com/mydecisive/mdai-data-core/opamp"
+	"github.com/open-telemetry/opamp-go/protobufs"
 	opentelemetryv1beta1 "github.com/open-telemetry/opentelemetry-operator/apis/v1beta1"
 	prometheusv1 "github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring/v1"
 	"go.uber.org/zap"
@@ -21,6 +23,11 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
+
+	"sigs.k8s.io/controller-runtime/pkg/manager"
+
+	opampserver "github.com/open-telemetry/opamp-go/server"
+	opamptypes "github.com/open-telemetry/opamp-go/server/types"
 
 	mdaiv1 "github.com/mydecisive/mdai-operator/api/v1"
 	"github.com/mydecisive/mdai-operator/internal/controller"
@@ -263,10 +270,12 @@ func main() {
 		gracefullyShutdownWithCode(1)
 	}
 
+	opampConnectionManager := opamp.NewAgentConnectionManager(ctx, zapLogger)
 	if err = (&controller.MdaiHubReconciler{
-		Client:    mgr.GetClient(),
-		Scheme:    mgr.GetScheme(),
-		ZapLogger: zapLogger,
+		Client:                 mgr.GetClient(),
+		Scheme:                 mgr.GetScheme(),
+		ZapLogger:              zapLogger,
+		AgentConnectionManager: opampConnectionManager,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "MdaiHub")
 		gracefullyShutdownWithCode(1)
@@ -349,9 +358,52 @@ func main() {
 		gracefullyShutdownWithCode(1)
 	}
 
+	opampServer := opampserver.New(opamp.NewLoggerFromZap(zapLogger, "opamp-server"))
+	settings := opampserver.StartSettings{
+		ListenEndpoint: "0.0.0.0:4320",
+		Settings: opampserver.Settings{
+			Callbacks: opamptypes.Callbacks{
+				OnConnecting: func(request *http.Request) opamptypes.ConnectionResponse {
+					return opamptypes.ConnectionResponse{
+						Accept: true,
+						ConnectionCallbacks: opamptypes.ConnectionCallbacks{
+							OnConnected: func(ctx context.Context, conn opamptypes.Connection) {
+								zapLogger.Debug("Connected to Opamp Agent (collector)")
+							},
+							OnMessage: func(ctx context.Context, conn opamptypes.Connection, message *protobufs.AgentToServer) *protobufs.ServerToAgent {
+								instanceID, uuidErr := uuid.FromBytes(message.GetInstanceUid())
+								if uuidErr != nil {
+									setupLog.Error(uuidErr, "Failed to parse instance uuid")
+								}
+								zapLogger.Debug("Received message from Opamp Agent (collector)",
+									zap.String("instanceID", instanceID.String()),
+								)
+
+								opampConnectionManager.AddConnection(conn, message)
+								return &protobufs.ServerToAgent{
+									InstanceUid: message.GetInstanceUid(),
+								}
+							},
+							OnConnectionClose: func(conn opamptypes.Connection) {
+								zapLogger.Debug("Disconnected from Opamp Server")
+								opampConnectionManager.RemoveConnection(conn)
+							},
+						},
+					}
+				},
+			},
+		},
+	}
+
+	if err = opampServer.Start(settings); err != nil {
+		setupLog.Error(err, "failed to start opamp server")
+		gracefullyShutdownWithCode(1)
+	}
+	setupLog.Info("opamp server started")
+
 	setupLog.Info("starting manager")
-	if err := mgr.Start(ctrl.SetupSignalHandler()); err != nil {
-		setupLog.Error(err, "problem running manager")
+	if startErr := mgr.Start(ctrl.SetupSignalHandler()); startErr != nil {
+		setupLog.Error(startErr, "problem running manager")
 		gracefullyShutdownWithCode(1)
 	}
 }

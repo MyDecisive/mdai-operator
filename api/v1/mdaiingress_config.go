@@ -40,9 +40,7 @@ func (c *OtelMdaiIngressComb) getPortsWithUrlPathsForComponentKinds(logger *zap.
 		case v1beta1.KindExporter:
 			retriever = exporters.ParserFor
 			cfg = c.Otelcol.Spec.Config.Exporters
-		case v1beta1.KindProcessor:
-			continue
-		case v1beta1.KindExtension:
+		case v1beta1.KindExtension, v1beta1.KindProcessor:
 			continue
 		default:
 			logger.Error("Unsupported component kind:", zap.Int("componentKind", int(componentKind)))

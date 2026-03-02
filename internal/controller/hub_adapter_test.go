@@ -4,16 +4,19 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"slices"
-	"strings"
 	"testing"
 	"time"
+
+	opampmock "github.com/mydecisive/mdai-data-core/mock/opamp"
 
 	"github.com/go-logr/logr"
 	mdaiv1 "github.com/mydecisive/mdai-operator/api/v1"
 	"github.com/open-telemetry/opentelemetry-operator/apis/v1beta1"
 	prometheusv1 "github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring/v1"
 	"github.com/stretchr/testify/assert"
+	testifymock "github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 	"github.com/valkey-io/valkey-go"
 	"github.com/valkey-io/valkey-go/mock"
@@ -95,7 +98,17 @@ func TestFinalizeHub_Success(t *testing.T) {
 	fakeValkey.EXPECT().Do(ctx, fakeValkey.B().Del().Key(VariableKeyPrefix+mdaiCR.Name+"/"+"key").Build()).
 		Return(mock.Result(mock.ValkeyInt64(1)))
 
-	adapter := NewHubAdapter(mdaiCR, logr.Discard(), zap.NewNop(), fakeClient, recorder, scheme, fakeValkey, time.Duration(30))
+	adapter := NewHubAdapter(
+		mdaiCR,
+		logr.Discard(),
+		zap.NewNop(),
+		fakeClient,
+		recorder,
+		scheme,
+		fakeValkey,
+		time.Duration(30),
+		opampmock.NewMockConnectionManager(t),
+	)
 
 	state, err := adapter.finalize(ctx)
 	if err != nil {
@@ -140,7 +153,17 @@ func TestEnsureFinalizerInitialized_AddsFinalizer(t *testing.T) {
 	fakeClient := newFakeClientForCR(mdaiCR, scheme)
 	recorder := record.NewFakeRecorder(10)
 
-	adapter := NewHubAdapter(mdaiCR, logr.Discard(), zap.NewNop(), fakeClient, recorder, scheme, nil, time.Duration(30))
+	adapter := NewHubAdapter(
+		mdaiCR,
+		logr.Discard(),
+		zap.NewNop(),
+		fakeClient,
+		recorder,
+		scheme,
+		nil,
+		time.Duration(30),
+		opampmock.NewMockConnectionManager(t),
+	)
 	_, err := adapter.ensureFinalizerInitialized(ctx)
 	if err != nil {
 		t.Fatalf("Unexpected error: %v", err)
@@ -172,7 +195,17 @@ func TestEnsureFinalizerInitialized_AlreadyPresent(t *testing.T) {
 	fakeClient := newFakeClientForCR(mdaiCR, scheme)
 	recorder := record.NewFakeRecorder(10)
 
-	adapter := NewHubAdapter(mdaiCR, logr.Discard(), zap.NewNop(), fakeClient, recorder, scheme, nil, time.Duration(30))
+	adapter := NewHubAdapter(
+		mdaiCR,
+		logr.Discard(),
+		zap.NewNop(),
+		fakeClient,
+		recorder,
+		scheme,
+		nil,
+		time.Duration(30),
+		opampmock.NewMockConnectionManager(t),
+	)
 	_, err := adapter.ensureFinalizerInitialized(ctx)
 	if err != nil {
 		t.Fatalf("Unexpected error: %v", err)
@@ -195,7 +228,17 @@ func TestEnsureStatusInitialized_SetsInitialStatus(t *testing.T) {
 	fakeClient := newFakeClientForCR(mdaiCR, scheme)
 	recorder := record.NewFakeRecorder(10)
 
-	adapter := NewHubAdapter(mdaiCR, logr.Discard(), zap.NewNop(), fakeClient, recorder, scheme, nil, time.Duration(30))
+	adapter := NewHubAdapter(
+		mdaiCR,
+		logr.Discard(),
+		zap.NewNop(),
+		fakeClient,
+		recorder,
+		scheme,
+		nil,
+		time.Duration(30),
+		opampmock.NewMockConnectionManager(t),
+	)
 	_, err := adapter.ensureStatusInitialized(ctx)
 	if err != nil {
 		t.Fatalf("Unexpected error: %v", err)
@@ -251,7 +294,17 @@ func TestDeleteFinalizer(t *testing.T) {
 	fakeClient := newFakeClientForCR(mdaiCR, scheme)
 	recorder := record.NewFakeRecorder(10)
 
-	adapter := NewHubAdapter(mdaiCR, logr.Discard(), zap.NewNop(), fakeClient, recorder, scheme, nil, time.Duration(30))
+	adapter := NewHubAdapter(
+		mdaiCR,
+		logr.Discard(),
+		zap.NewNop(),
+		fakeClient,
+		recorder,
+		scheme,
+		nil,
+		time.Duration(30),
+		opampmock.NewMockConnectionManager(t),
+	)
 	if err := adapter.deleteFinalizer(ctx, mdaiCR, hubFinalizer); err != nil {
 		t.Fatalf("deleteFinalizer returned error: %v", err)
 	}
@@ -271,7 +324,17 @@ func TestCreateOrUpdateEnvConfigMap(t *testing.T) {
 	fakeClient := newFakeClientForCR(mdaiCR, scheme)
 	recorder := record.NewFakeRecorder(10)
 
-	adapter := NewHubAdapter(mdaiCR, logr.Discard(), zap.NewNop(), fakeClient, recorder, scheme, nil, time.Duration(30))
+	adapter := NewHubAdapter(
+		mdaiCR,
+		logr.Discard(),
+		zap.NewNop(),
+		fakeClient,
+		recorder,
+		scheme,
+		nil,
+		time.Duration(30),
+		opampmock.NewMockConnectionManager(t),
+	)
 	envMap := map[string]string{"VAR": "value"}
 	if _, _, err := adapter.createOrUpdateEnvConfigMap(ctx, envMap, envConfigMapNamePostfix, "default"); err != nil {
 		t.Fatalf("createOrUpdateEnvConfigMap returned error: %v", err)
@@ -294,7 +357,17 @@ func TestCreateOrUpdateManualEnvConfigMap(t *testing.T) {
 	fakeClient := newFakeClientForCR(mdaiCR, scheme)
 	recorder := record.NewFakeRecorder(10)
 
-	adapter := NewHubAdapter(mdaiCR, logr.Discard(), zap.NewNop(), fakeClient, recorder, scheme, nil, time.Duration(30))
+	adapter := NewHubAdapter(
+		mdaiCR,
+		logr.Discard(),
+		zap.NewNop(),
+		fakeClient,
+		recorder,
+		scheme,
+		nil,
+		time.Duration(30),
+		opampmock.NewMockConnectionManager(t),
+	)
 	envMap := map[string]string{"VAR": "string"}
 	_, cm, err := adapter.createOrUpdateEnvConfigMap(
 		ctx,
@@ -471,7 +544,20 @@ func TestEnsureVariableSynced(t *testing.T) {
 	fakeValkey.EXPECT().Do(ctx, fakeValkey.B().Del().Key(VariableKeyPrefix+mdaiCR.Name+"/"+"key").Build()).
 		Return(mock.Result(mock.ValkeyInt64(1)))
 
-	adapter := NewHubAdapter(mdaiCR, logr.Discard(), zap.NewNop(), fakeClient, recorder, scheme, fakeValkey, time.Duration(30))
+	mockConnectionManager := opampmock.NewMockConnectionManager(t)
+	mockConnectionManager.EXPECT().DispatchRestartCommand(testifymock.Anything).Return(nil).Times(1)
+
+	adapter := NewHubAdapter(
+		mdaiCR,
+		logr.Discard(),
+		zap.NewNop(),
+		fakeClient,
+		recorder,
+		scheme,
+		fakeValkey,
+		time.Duration(30),
+		mockConnectionManager,
+	)
 
 	opResult, err := adapter.ensureVariableSynchronized(ctx)
 	if err != nil {
@@ -495,15 +581,6 @@ func TestEnsureVariableSynced(t *testing.T) {
 	assert.Equal(t, "field1: value1\nfield2: value1\n", envCM.Data["MY_ENV_MAP"])
 	assert.Equal(t, "service1,service2", envCM.Data["MY_ENV_PL"])
 	assert.Equal(t, "INFO|WARNING", envCM.Data["MY_ENV_HS"])
-
-	updatedCollector := &v1beta1.OpenTelemetryCollector{}
-	if err := fakeClient.Get(ctx, types.NamespacedName{Name: "collector1", Namespace: "default"}, updatedCollector); err != nil {
-		t.Fatalf("failed to get updated collector: %v", err)
-	}
-	restartAnnotation := "kubectl.kubernetes.io/restartedAt"
-	if ann, ok := updatedCollector.Annotations[restartAnnotation]; !ok || strings.TrimSpace(ann) == "" {
-		t.Errorf("expected collector to have restart annotation %q set, got: %v", restartAnnotation, updatedCollector.Annotations)
-	}
 }
 
 func TestEnsureManualAndComputedVariableSynced(t *testing.T) {
@@ -560,7 +637,19 @@ func TestEnsureManualAndComputedVariableSynced(t *testing.T) {
 	fakeValkey.EXPECT().Do(ctx, fakeValkey.B().Del().Key(VariableKeyPrefix+mdaiCR.Name+"/"+"key").Build()).
 		Return(mock.Result(mock.ValkeyInt64(1)))
 
-	adapter := NewHubAdapter(mdaiCR, logr.Discard(), zap.NewNop(), fakeClient, recorder, scheme, fakeValkey, time.Duration(30))
+	mockConnectionManager := opampmock.NewMockConnectionManager(t)
+	mockConnectionManager.EXPECT().DispatchRestartCommand(testifymock.Anything).Return(nil).Times(1)
+	adapter := NewHubAdapter(
+		mdaiCR,
+		logr.Discard(),
+		zap.NewNop(),
+		fakeClient,
+		recorder,
+		scheme,
+		fakeValkey,
+		time.Duration(30),
+		mockConnectionManager,
+	)
 
 	opResult, err := adapter.ensureVariableSynchronized(ctx)
 	if err != nil {
@@ -586,15 +675,82 @@ func TestEnsureManualAndComputedVariableSynced(t *testing.T) {
 	if v, ok := envManualCM.Data["mymanualkey"]; !ok || v != "set" {
 		t.Errorf("expected env var MY_ENV to be 'default', got %q", v)
 	}
+}
 
-	updatedCollector := &v1beta1.OpenTelemetryCollector{}
-	if err := fakeClient.Get(ctx, types.NamespacedName{Name: "collector1", Namespace: "default"}, updatedCollector); err != nil {
-		t.Fatalf("failed to get updated collector: %v", err)
+func TestEnsureVariableSynced_errorDispatchingRestart(t *testing.T) {
+	ctx := t.Context()
+	scheme := createTestScheme()
+	storageType := mdaiv1.VariableSourceTypeBuiltInValkey
+	variableType := mdaiv1.VariableDataTypeSet
+	varWith := mdaiv1.Serializer{
+		Name: "MY_ENV",
+		Transformers: []mdaiv1.VariableTransformer{
+			{
+				Type: mdaiv1.TransformerTypeJoin,
+				Join: &mdaiv1.JoinTransformer{
+					Delimiter: ",",
+				},
+			},
+		},
 	}
-	restartAnnotation := "kubectl.kubernetes.io/restartedAt"
-	if ann, ok := updatedCollector.Annotations[restartAnnotation]; !ok || strings.TrimSpace(ann) == "" {
-		t.Errorf("expected collector to have restart annotation %q set, got: %v", restartAnnotation, updatedCollector.Annotations)
+	computedVariable := mdaiv1.Variable{
+		StorageType: storageType,
+		Type:        mdaiv1.VariableTypeComputed,
+		DataType:    variableType,
+		Key:         "mykey",
+		SerializeAs: &[]mdaiv1.Serializer{varWith},
 	}
+	manualVariable := mdaiv1.Variable{
+		StorageType: storageType,
+		Type:        mdaiv1.VariableTypeManual,
+		DataType:    variableType,
+		Key:         "mymanualkey",
+		SerializeAs: &[]mdaiv1.Serializer{varWith},
+	}
+	mdaiCR := newTestMdaiCR()
+	mdaiCR.Spec.Variables = []mdaiv1.Variable{computedVariable, manualVariable}
+
+	fakeClient := newFakeClientForCR(mdaiCR, scheme)
+	recorder := record.NewFakeRecorder(10)
+
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	fakeValkey := mock.NewClient(ctrl)
+	expectedComputedKey := VariableKeyPrefix + mdaiCR.Name + "/" + computedVariable.Key
+	expectedManualKey := VariableKeyPrefix + mdaiCR.Name + "/" + manualVariable.Key
+
+	// audit restart NOT sent since we errored on dispatching the restart event.
+	fakeValkey.EXPECT().Do(ctx, XaddMatcher{Type: "collector_restart"}).Return(mock.Result(mock.ValkeyString(""))).Times(0)
+
+	fakeValkey.EXPECT().Do(ctx, fakeValkey.B().Smembers().Key(expectedComputedKey).Build()).
+		Return(mock.Result(mock.ValkeyArray(mock.ValkeyString("default"))))
+	fakeValkey.EXPECT().Do(ctx, fakeValkey.B().Smembers().Key(expectedManualKey).Build()).
+		Return(mock.Result(mock.ValkeyArray(mock.ValkeyString("default"))))
+
+	fakeValkey.EXPECT().Do(ctx, fakeValkey.B().Scan().Cursor(0).Match(VariableKeyPrefix+mdaiCR.Name+"/"+"*").Count(100).Build()).
+		Return(mock.Result(mock.ValkeyArray(mock.ValkeyInt64(0), mock.ValkeyArray(mock.ValkeyString(VariableKeyPrefix+mdaiCR.Name+"/"+"key")))))
+	fakeValkey.EXPECT().Do(ctx, fakeValkey.B().Del().Key(VariableKeyPrefix+mdaiCR.Name+"/"+"key").Build()).
+		Return(mock.Result(mock.ValkeyInt64(1)))
+
+	mockConnectionManager := opampmock.NewMockConnectionManager(t)
+	mockConnectionManager.EXPECT().DispatchRestartCommand(testifymock.Anything).Return(errors.New("whoopsie")).Times(1)
+	adapter := NewHubAdapter(
+		mdaiCR,
+		logr.Discard(),
+		zap.NewNop(),
+		fakeClient,
+		recorder,
+		scheme,
+		fakeValkey,
+		time.Duration(30),
+		mockConnectionManager,
+	)
+
+	opResult, err := adapter.ensureVariableSynchronized(ctx)
+	require.ErrorContains(t, err, "whoopsie")
+
+	expectedOpResult, _ := Requeue()
+	require.Equal(t, expectedOpResult, opResult)
 }
 
 type XaddMatcher struct {
@@ -645,7 +801,17 @@ func TestEnsureEvaluationsSynchronized_WithEvaluations(t *testing.T) {
 
 	fakeClient := newFakeClientForCR(mdaiCR, scheme)
 	recorder := record.NewFakeRecorder(10)
-	adapter := NewHubAdapter(mdaiCR, logr.Discard(), zap.NewNop(), fakeClient, recorder, scheme, nil, time.Duration(30))
+	adapter := NewHubAdapter(
+		mdaiCR,
+		logr.Discard(),
+		zap.NewNop(),
+		fakeClient,
+		recorder,
+		scheme,
+		nil,
+		time.Duration(30),
+		opampmock.NewMockConnectionManager(t),
+	)
 
 	opResult, err := adapter.ensurePrometheusAlertsSynchronized(ctx)
 	if err != nil {
@@ -704,7 +870,17 @@ func TestEnsureEvaluationsSynchronized_NoEvaluations(t *testing.T) {
 
 	fakeClient := newFakeClientForCR(mdaiCR, scheme)
 	recorder := record.NewFakeRecorder(10)
-	adapter := NewHubAdapter(mdaiCR, logr.Discard(), zap.NewNop(), fakeClient, recorder, scheme, nil, time.Duration(30))
+	adapter := NewHubAdapter(
+		mdaiCR,
+		logr.Discard(),
+		zap.NewNop(),
+		fakeClient,
+		recorder,
+		scheme,
+		nil,
+		time.Duration(30),
+		opampmock.NewMockConnectionManager(t),
+	)
 
 	opResult, err := adapter.ensurePrometheusAlertsSynchronized(ctx)
 	if err != nil {
@@ -748,7 +924,17 @@ func TestEnsureHubDeletionProcessed_WithDeletion(t *testing.T) {
 	fakeValkey.EXPECT().Do(ctx, fakeValkey.B().Del().Key(VariableKeyPrefix+mdaiCR.Name+"/"+"key").Build()).
 		Return(mock.Result(mock.ValkeyInt64(1)))
 
-	adapter := NewHubAdapter(mdaiCR, logr.Discard(), zap.NewNop(), fakeClient, recorder, scheme, fakeValkey, time.Duration(30))
+	adapter := NewHubAdapter(
+		mdaiCR,
+		logr.Discard(),
+		zap.NewNop(),
+		fakeClient,
+		recorder,
+		scheme,
+		fakeValkey,
+		time.Duration(30),
+		opampmock.NewMockConnectionManager(t),
+	)
 
 	opResult, err := adapter.ensureDeletionProcessed(ctx)
 	if err != nil {
@@ -777,7 +963,17 @@ func TestEnsureStatusSetToDone(t *testing.T) {
 	fakeClient := newFakeClientForCR(mdaiCR, scheme)
 	recorder := record.NewFakeRecorder(10)
 
-	adapter := NewHubAdapter(mdaiCR, logr.Discard(), zap.NewNop(), fakeClient, recorder, scheme, nil, time.Duration(30))
+	adapter := NewHubAdapter(
+		mdaiCR,
+		logr.Discard(),
+		zap.NewNop(),
+		fakeClient,
+		recorder,
+		scheme,
+		nil,
+		time.Duration(30),
+		opampmock.NewMockConnectionManager(t),
+	)
 
 	opResult, err := adapter.ensureStatusSetToDone(ctx)
 	if err != nil {

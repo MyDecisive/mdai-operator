@@ -561,8 +561,8 @@ var _ = Describe("Manager", Ordered, func() {
 				out, err := utils.Run(cmd)
 				g.Expect(err).NotTo(HaveOccurred())
 
-				podNames := strings.Fields(out)
-				for _, pod := range podNames {
+				podNames := strings.FieldsSeq(out)
+				for pod := range podNames {
 					if pod == "" {
 						continue
 					}
@@ -648,8 +648,8 @@ var _ = Describe("Manager", Ordered, func() {
 				out, err := utils.Run(cmd)
 				g.Expect(err).NotTo(HaveOccurred())
 
-				podNames := strings.Fields(out)
-				for _, pod := range podNames {
+				podNames := strings.FieldsSeq(out)
+				for pod := range podNames {
 					if pod == "" {
 						continue
 					}
@@ -760,8 +760,8 @@ var _ = Describe("Manager", Ordered, func() {
 				out, err := utils.Run(cmd)
 				g.Expect(err).NotTo(HaveOccurred())
 
-				podNames := strings.Fields(out)
-				for _, pod := range podNames {
+				podNames := strings.FieldsSeq(out)
+				for pod := range podNames {
 					if pod == "" {
 						continue
 					}

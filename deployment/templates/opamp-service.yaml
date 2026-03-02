@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "deployment.fullname" . }}-opamp
+  labels:
+    control-plane: controller-manager
+  {{- include "deployment.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.opampService.type }}
+  selector:
+    app.kubernetes.io/name: mdai-operator
+    control-plane: controller-manager
+    {{- include "deployment.selectorLabels" . | nindent 4 }}
+  ports:
+  {{- .Values.opampService.ports | toYaml | nindent 2 }}
