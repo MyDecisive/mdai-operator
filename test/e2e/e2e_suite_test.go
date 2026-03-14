@@ -23,6 +23,10 @@ var (
 	// projectImage is the name of the image which will be build and loaded
 	// with the code source changes to be tested.
 	projectImage = "mdai-operator:v0.0.1"
+
+	// projectPlatform is the platform to build the test docker image for
+	projectPlatform = "linux/amd64"
+       
 )
 
 // TestE2E runs the end-to-end (e2e) test suite for the project. These tests execute in an isolated,
@@ -40,7 +44,7 @@ var _ = BeforeSuite(func() {
 	_ = utils.UncommentCode("config/default/kustomization.yaml", "#- ../prometheus", "#")
 
 	By("building the manager(Operator) image")
-	cmd := exec.Command("make", "docker-build", "IMG="+projectImage)
+	cmd := exec.Command("make", "docker-build", "PLATFORMS="+projectPlatform, "IMG="+projectImage)
 	_, err := utils.Run(cmd)
 	ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to build the manager(Operator) image")
 
