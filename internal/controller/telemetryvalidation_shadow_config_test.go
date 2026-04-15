@@ -24,13 +24,21 @@ func TestDeriveShadowConfigInjectsFidelityProcessorAndMetadata(t *testing.T) {
 		Exporters: otelv1beta1.AnyConfig{Object: map[string]any{
 			"datadog": map[string]any{"api": map[string]any{"key": "x"}},
 		}},
-		Service: otelv1beta1.Service{Pipelines: map[string]*otelv1beta1.Pipeline{
-			"traces": {
-				Receivers:  []string{"datadog"},
-				Processors: []string{"batch"},
-				Exporters:  []string{"datadog"},
+		Service: otelv1beta1.Service{
+			Pipelines: map[string]*otelv1beta1.Pipeline{
+				"traces": {
+					Receivers:  []string{"datadog"},
+					Processors: []string{"batch"},
+					Exporters:  []string{"datadog"},
+				},
 			},
-		}},
+			Telemetry: &otelv1beta1.AnyConfig{Object: map[string]any{
+				"resource": map[string]any{
+					"service.name": "gateway",
+					"team":         "platform",
+				},
+			}},
+		},
 	}
 
 	shadow := deriveShadowConfig(cfg, []hubv1.TelemetrySignal{hubv1.TelemetrySignalTraces}, "", "mdai", "sample", "gateway", nil)
@@ -50,6 +58,16 @@ func TestDeriveShadowConfigInjectsFidelityProcessorAndMetadata(t *testing.T) {
 	assert.Equal(t, "upsert", action["action"])
 	assert.Equal(t, correlationAttributeKey, action["key"])
 	assert.Equal(t, correlationHeaderFromCtxKey, action["from_context"])
+	resourceCorrelationProcessor, ok := shadow.Processors.Object[correlationResourceProcessorName].(map[string]any)
+	require.True(t, ok)
+	resourceAttributes, ok := resourceCorrelationProcessor["attributes"].([]any)
+	require.True(t, ok)
+	require.Len(t, resourceAttributes, 1)
+	resourceAction, ok := resourceAttributes[0].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "upsert", resourceAction["action"])
+	assert.Equal(t, correlationAttributeKey, resourceAction["key"])
+	assert.Equal(t, correlationHeaderFromCtxKey, resourceAction["from_context"])
 	transformProcessor, ok := shadow.Processors.Object[correlationDDTagsProcessorName].(map[string]any)
 	require.True(t, ok)
 	traceStatements, ok := transformProcessor["trace_statements"].([]any)
@@ -62,6 +80,19 @@ func TestDeriveShadowConfigInjectsFidelityProcessorAndMetadata(t *testing.T) {
 	require.Len(t, statementList, 2)
 	assert.Equal(t, fmt.Sprintf(setDDTagsOnlyStatement, correlationDDTagKey, correlationAttributeKey, correlationAttributeKey), statementList[0])
 	assert.Equal(t, fmt.Sprintf(appendDDTagsStatement, correlationDDTagKey, correlationAttributeKey, correlationAttributeKey), statementList[1])
+	metricsTransformProcessor, ok := shadow.Processors.Object[correlationMetricsProcessorName].(map[string]any)
+	require.True(t, ok)
+	metricStatements, ok := metricsTransformProcessor["metric_statements"].([]any)
+	require.True(t, ok)
+	require.Len(t, metricStatements, 1)
+	metricStatement, ok := metricStatements[0].(map[string]any)
+	require.True(t, ok)
+	metricStatementList, ok := metricStatement["statements"].([]any)
+	require.True(t, ok)
+	require.Len(t, metricStatementList, 3)
+	assert.Equal(t, fmt.Sprintf(setMetricCorrelationStatement, correlationAttributeKey, correlationAttributeKey, correlationAttributeKey, correlationAttributeKey), metricStatementList[0])
+	assert.Equal(t, deleteMetricDDTagsStatement, metricStatementList[1])
+	assert.Equal(t, deleteMetricTagsStatement, metricStatementList[2])
 
 	pipeline := shadow.Service.Pipelines["traces"]
 	require.NotNil(t, pipeline)
@@ -73,6 +104,12 @@ func TestDeriveShadowConfigInjectsFidelityProcessorAndMetadata(t *testing.T) {
 	logsCfg, ok := exporterCfg["logs"].(map[string]any)
 	require.True(t, ok)
 	assert.Equal(t, "http://mdai-fidelity-validator.mdai.svc.cluster.local:18081/intake/exporter/mdai/sample/gateway/datadog", logsCfg["endpoint"])
+
+	require.NotNil(t, shadow.Service.Telemetry)
+	resourceCfg, ok := shadow.Service.Telemetry.Object["resource"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "gateway-shadow", resourceCfg["service.name"])
+	assert.Equal(t, "platform", resourceCfg["team"])
 }
 
 func TestDeriveShadowConfigDoesNotDuplicateFidelityProcessorInPipeline(t *testing.T) {
@@ -111,6 +148,36 @@ func TestDeriveShadowConfigDoesNotDuplicateFidelityProcessorInPipeline(t *testin
 	}
 	assert.Equal(t, 1, count)
 	assert.Equal(t, 1, ddtagsCount)
+}
+
+func TestDeriveShadowConfigUsesMetricsSpecificCorrelationProcessors(t *testing.T) {
+	t.Parallel()
+
+	cfg := otelv1beta1.Config{
+		Receivers: otelv1beta1.AnyConfig{Object: map[string]any{
+			"datadog": map[string]any{"endpoint": "0.0.0.0:8126"},
+		}},
+		Processors: &otelv1beta1.AnyConfig{Object: map[string]any{}},
+		Exporters: otelv1beta1.AnyConfig{Object: map[string]any{
+			"datadog": map[string]any{},
+		}},
+		Service: otelv1beta1.Service{Pipelines: map[string]*otelv1beta1.Pipeline{
+			"metrics": {
+				Receivers:  []string{"datadog"},
+				Processors: []string{"batch"},
+				Exporters:  []string{"datadog"},
+			},
+		}},
+	}
+
+	shadow := deriveShadowConfig(cfg, []hubv1.TelemetrySignal{hubv1.TelemetrySignalMetrics}, "", "mdai", "sample", "gateway", nil)
+
+	pipeline := shadow.Service.Pipelines["metrics"]
+	require.NotNil(t, pipeline)
+	assert.Contains(t, pipeline.Processors, correlationResourceProcessorName)
+	assert.Contains(t, pipeline.Processors, correlationMetricsProcessorName)
+	assert.NotContains(t, pipeline.Processors, correlationProcessorName)
+	assert.NotContains(t, pipeline.Processors, correlationDDTagsProcessorName)
 }
 
 func TestDeriveShadowConfigTVRewriteOverridesDefaultByName(t *testing.T) {

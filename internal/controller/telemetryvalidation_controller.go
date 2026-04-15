@@ -36,17 +36,22 @@ type TelemetryValidationReconciler struct {
 }
 
 const (
-	correlationProcessorName             = "attributes/correlation_id"
-	correlationDDTagsProcessorName       = "transform/correlation_ddtags"
-	correlationAttributeKey              = "correlation_id"
-	correlationHeaderFromCtxKey          = "metadata.x-correlation-id"
-	correlationDDTagKey                  = "correlation_id:"
-	setDDTagsOnlyStatement               = `set(attributes["ddtags"], Concat(["%s", attributes["%s"]], "")) where attributes["%s"] != nil and attributes["ddtags"] == nil`
-	appendDDTagsStatement                = `set(attributes["ddtags"], Concat([attributes["ddtags"], ",", "%s", attributes["%s"]], "")) where attributes["%s"] != nil and attributes["ddtags"] != nil`
-	defaultValidatorImage                = "ghcr.io/mydecisive/mdai-fidelity-validator:0.1.0"
-	defaultValidatorPort           int32 = 18081
-	defaultValidatorReceiverPort   int32 = 8126
-	defaultValidatorReplicas       int32 = 1
+	correlationProcessorName               = "attributes/correlation_id"
+	correlationResourceProcessorName       = "resource/correlation_id"
+	correlationDDTagsProcessorName         = "transform/correlation_ddtags"
+	correlationMetricsProcessorName        = "transform/metrics_correlation_id"
+	correlationAttributeKey                = "correlation_id"
+	correlationHeaderFromCtxKey            = "metadata.x-correlation-id"
+	correlationDDTagKey                    = "correlation_id:"
+	setDDTagsOnlyStatement                 = `set(attributes["ddtags"], Concat(["%s", attributes["%s"]], "")) where attributes["%s"] != nil and attributes["ddtags"] == nil`
+	appendDDTagsStatement                  = `set(attributes["ddtags"], Concat([attributes["ddtags"], ",", "%s", attributes["%s"]], "")) where attributes["%s"] != nil and attributes["ddtags"] != nil`
+	setMetricCorrelationStatement          = `set(attributes["%s"], resource.attributes["%s"]) where attributes["%s"] == nil and resource.attributes["%s"] != nil`
+	deleteMetricDDTagsStatement            = `delete_key(attributes, "ddtags") where attributes["ddtags"] != nil`
+	deleteMetricTagsStatement              = `delete_key(attributes, "tags") where attributes["tags"] != nil`
+	defaultValidatorImage                  = "ghcr.io/mydecisive/mdai-fidelity-validator:0.1.0"
+	defaultValidatorPort             int32 = 18081
+	defaultValidatorReceiverPort     int32 = 8126
+	defaultValidatorReplicas         int32 = 1
 )
 
 //go:embed config/telemetryvalidation_exporter_rewrites.yaml
@@ -626,6 +631,7 @@ func deriveShadowConfig(
 	shadow := *cfg.DeepCopy()
 	ensureDatadogReceiversIncludeMetadata(&shadow)
 	ensureCorrelationProcessors(&shadow)
+	rewriteShadowTelemetryServiceName(&shadow, shadowCollectorName(collectorName))
 	rewriteRules := mergedExporterRewriteRules(tvRules)
 
 	enabledSignals := make(map[hubv1.TelemetrySignal]struct{}, len(signals))
@@ -651,8 +657,14 @@ func deriveShadowConfig(
 
 		filtered := *pipeline
 		filtered.Exporters = targetExporters
-		filtered.Processors = appendProcessorOnce(filtered.Processors, correlationProcessorName)
-		filtered.Processors = appendProcessorOnce(filtered.Processors, correlationDDTagsProcessorName)
+		switch signal {
+		case hubv1.TelemetrySignalMetrics:
+			filtered.Processors = appendProcessorOnce(filtered.Processors, correlationResourceProcessorName)
+			filtered.Processors = appendProcessorOnce(filtered.Processors, correlationMetricsProcessorName)
+		default:
+			filtered.Processors = appendProcessorOnce(filtered.Processors, correlationProcessorName)
+			filtered.Processors = appendProcessorOnce(filtered.Processors, correlationDDTagsProcessorName)
+		}
 		filteredPipelines[name] = &filtered
 		for _, exporterName := range targetExporters {
 			referencedExporters[exporterName] = struct{}{}
@@ -679,6 +691,22 @@ func deriveShadowConfig(
 	shadow.Exporters.Object = exporters
 
 	return shadow
+}
+
+func rewriteShadowTelemetryServiceName(cfg *otelv1beta1.Config, shadowName string) {
+	if cfg.Service.Telemetry == nil || cfg.Service.Telemetry.Object == nil {
+		return
+	}
+
+	resourceCfg, ok := cfg.Service.Telemetry.Object["resource"].(map[string]any)
+	if !ok {
+		return
+	}
+	if _, ok := resourceCfg["service.name"].(string); !ok {
+		return
+	}
+	resourceCfg["service.name"] = shadowName
+	cfg.Service.Telemetry.Object["resource"] = resourceCfg
 }
 
 func ensureDatadogReceiversIncludeMetadata(cfg *otelv1beta1.Config) {
@@ -714,6 +742,15 @@ func ensureCorrelationProcessors(cfg *otelv1beta1.Config) {
 			},
 		},
 	}
+	cfg.Processors.Object[correlationResourceProcessorName] = map[string]any{
+		"attributes": []any{
+			map[string]any{
+				"key":          correlationAttributeKey,
+				"action":       "upsert",
+				"from_context": correlationHeaderFromCtxKey,
+			},
+		},
+	}
 
 	setDDTagsStatement := fmt.Sprintf(setDDTagsOnlyStatement, correlationDDTagKey, correlationAttributeKey, correlationAttributeKey)
 	appendToDDTagsStatement := fmt.Sprintf(appendDDTagsStatement, correlationDDTagKey, correlationAttributeKey, correlationAttributeKey)
@@ -730,10 +767,19 @@ func ensureCorrelationProcessors(cfg *otelv1beta1.Config) {
 				"statements": []any{setDDTagsStatement, appendToDDTagsStatement},
 			},
 		},
+	}
+	setMetricCorrelation := fmt.Sprintf(
+		setMetricCorrelationStatement,
+		correlationAttributeKey,
+		correlationAttributeKey,
+		correlationAttributeKey,
+		correlationAttributeKey,
+	)
+	cfg.Processors.Object[correlationMetricsProcessorName] = map[string]any{
 		"metric_statements": []any{
 			map[string]any{
 				"context":    "datapoint",
-				"statements": []any{setDDTagsStatement, appendToDDTagsStatement},
+				"statements": []any{setMetricCorrelation, deleteMetricDDTagsStatement, deleteMetricTagsStatement},
 			},
 		},
 	}
