@@ -3,6 +3,7 @@ package xds
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -16,6 +17,7 @@ import (
 	route "github.com/envoyproxy/go-control-plane/envoy/config/route/v3"
 	router "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/http/router/v3"
 	hcm "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/network/http_connection_manager/v3"
+	upstreamhttp "github.com/envoyproxy/go-control-plane/envoy/extensions/upstreams/http/v3"
 	"github.com/envoyproxy/go-control-plane/pkg/cache/types"
 	"github.com/envoyproxy/go-control-plane/pkg/cache/v3"
 	"github.com/envoyproxy/go-control-plane/pkg/resource/v3"
@@ -26,6 +28,13 @@ import (
 	"google.golang.org/protobuf/types/known/anypb"
 	"google.golang.org/protobuf/types/known/durationpb"
 	"google.golang.org/protobuf/types/known/wrapperspb"
+)
+
+const httpProtocolOptionsTypedExtension = "envoy.extensions.upstreams.http.v3.HttpProtocolOptions"
+
+const (
+	defaultOTLPGRPCPort = 4317
+	defaultOTLPHTTPPort = 4318
 )
 
 type Manager struct {
@@ -45,10 +54,11 @@ func (m *Manager) GetCache() cache.Cache {
 }
 
 type collectorPort struct {
-	port uint32
-	svc  string
-	name string
-	ns   string
+	port        uint32
+	svc         string
+	name        string
+	ns          string
+	enableHTTP2 bool
 }
 
 type routeTarget struct {
@@ -61,6 +71,19 @@ func (m *Manager) UpdateSnapshot(ctx context.Context, nodeID string, collectors 
 	log := logr.FromContextOrDiscard(ctx)
 	m.mu.Lock()
 	defer m.mu.Unlock()
+
+	upstreamProtocolOptionsAny, err := anypb.New(&upstreamhttp.HttpProtocolOptions{
+		UpstreamProtocolOptions: &upstreamhttp.HttpProtocolOptions_ExplicitHttpConfig_{
+			ExplicitHttpConfig: &upstreamhttp.HttpProtocolOptions_ExplicitHttpConfig{
+				ProtocolConfig: &upstreamhttp.HttpProtocolOptions_ExplicitHttpConfig_Http2ProtocolOptions{
+					Http2ProtocolOptions: &core.Http2ProtocolOptions{},
+				},
+			},
+		},
+	})
+	if err != nil {
+		return err
+	}
 
 	// Group all ports found across all collectors
 	portMap := make(map[uint32][]collectorPort)
@@ -75,17 +98,21 @@ func (m *Manager) UpdateSnapshot(ctx context.Context, nodeID string, collectors 
 
 		ports := m.extractPortsFromConfig(c.Spec.Config)
 		if len(ports) == 0 {
-			ports = []uint32{4317, 4318} // Default OTLP fallback
+			ports = []collectorProtocolPort{
+				{port: defaultOTLPGRPCPort, enableHTTP2: true},
+				{port: defaultOTLPHTTPPort, enableHTTP2: false},
+			}
 		}
 
 		log.Info("Identified ports for collector", "collector", c.Name, "ports", ports)
 
 		for _, p := range ports {
-			portMap[p] = append(portMap[p], collectorPort{
-				port: p,
-				svc:  svcName,
-				name: c.Name,
-				ns:   c.Namespace,
+			portMap[p.port] = append(portMap[p.port], collectorPort{
+				port:        p.port,
+				svc:         svcName,
+				name:        c.Name,
+				ns:          c.Namespace,
+				enableHTTP2: p.enableHTTP2,
 			})
 		}
 	}
@@ -100,7 +127,7 @@ func (m *Manager) UpdateSnapshot(ctx context.Context, nodeID string, collectors 
 		for _, cp := range cpList {
 			// Cluster name is based on the service it forwards to
 			clusterName := fmt.Sprintf("%s_%d", cp.name, cp.port)
-			appendCluster(&clusters, seenClusters, newDNSCluster(clusterName, cp.svc, cp.port))
+			appendCluster(&clusters, seenClusters, newDNSCluster(clusterName, cp.svc, cp.port, protocolOptionsForCollectorPort(cp, upstreamProtocolOptionsAny)))
 
 			mirrorTargets := validationTargetsForCollectorPort(log, cp, port, validations)
 			for _, target := range mirrorTargets {
@@ -115,7 +142,7 @@ func (m *Manager) UpdateSnapshot(ctx context.Context, nodeID string, collectors 
 				)
 			}
 			for _, target := range mirrorTargets {
-				appendCluster(&clusters, seenClusters, newDNSCluster(target.clusterName, target.address, target.port))
+				appendCluster(&clusters, seenClusters, newDNSCluster(target.clusterName, target.address, target.port, protocolOptionsForCollectorPort(cp, upstreamProtocolOptionsAny)))
 			}
 
 			vHost := &route.VirtualHost{
@@ -245,14 +272,18 @@ func buildRoute(clusterName string, mirrorTargets []routeTarget) *route.Route {
 				ClusterSpecifier: &route.RouteAction_Cluster{
 					Cluster: clusterName,
 				},
+				RetryPolicy: &route.RetryPolicy{
+					RetryOn:    "5xx,connect-failure,refused-stream,reset,unavailable",
+					NumRetries: wrapperspb.UInt32(2), //nolint:mnd
+				},
 				RequestMirrorPolicies: requestMirrorPolicies,
 			},
 		},
 	}
 }
 
-func newDNSCluster(name, address string, port uint32) *cluster.Cluster {
-	return &cluster.Cluster{
+func newDNSCluster(name, address string, port uint32, upstreamProtocolOptionsAny *anypb.Any) *cluster.Cluster {
+	c := &cluster.Cluster{
 		Name:           name,
 		ConnectTimeout: durationpb.New(5 * time.Second), //nolint:mnd
 		ClusterDiscoveryType: &cluster.Cluster_Type{
@@ -282,6 +313,19 @@ func newDNSCluster(name, address string, port uint32) *cluster.Cluster {
 			}},
 		},
 	}
+	if upstreamProtocolOptionsAny != nil {
+		c.TypedExtensionProtocolOptions = map[string]*anypb.Any{
+			httpProtocolOptionsTypedExtension: upstreamProtocolOptionsAny,
+		}
+	}
+	return c
+}
+
+func protocolOptionsForCollectorPort(cp collectorPort, upstreamProtocolOptionsAny *anypb.Any) *anypb.Any {
+	if cp.enableHTTP2 {
+		return upstreamProtocolOptionsAny
+	}
+	return nil
 }
 
 func appendCluster(clusters *[]types.Resource, seen map[string]struct{}, c *cluster.Cluster) {
@@ -311,14 +355,14 @@ func validationTargetsForCollectorPort(log logr.Logger, cp collectorPort, listen
 			continue
 		}
 		targets = append(targets, routeTarget{
-			clusterName: fmt.Sprintf("%s_validator_%d", cp.name, listenerPort),
+			clusterName: fmt.Sprintf("%s_%s_%s_validator_%d", cp.name, validation.Namespace, validation.Name, listenerPort),
 			address:     fmt.Sprintf("%s.%s.svc.cluster.local", validatorService, validation.Namespace),
 			port:        listenerPort,
 		})
 
 		shadowName := shadowCollectorName(cp.name)
 		targets = append(targets, routeTarget{
-			clusterName: fmt.Sprintf("%s_shadow_%d", cp.name, listenerPort),
+			clusterName: fmt.Sprintf("%s_%s_%s_shadow_%d", cp.name, validation.Namespace, validation.Name, listenerPort),
 			address:     fmt.Sprintf("%s-collector.%s.svc.cluster.local", shadowName, validation.Namespace),
 			port:        listenerPort,
 		})
@@ -341,8 +385,13 @@ func isShadowCollector(c otelv1beta1.OpenTelemetryCollector) bool {
 	return strings.HasSuffix(c.Name, "-shadow")
 }
 
-func (*Manager) extractPortsFromConfig(config otelv1beta1.Config) []uint32 {
-	ports := make([]uint32, 0)
+type collectorProtocolPort struct {
+	port        uint32
+	enableHTTP2 bool
+}
+
+func (*Manager) extractPortsFromConfig(config otelv1beta1.Config) []collectorProtocolPort {
+	portProtocols := make(map[uint32]bool)
 	receivers := config.Receivers.Object
 
 	for _, r := range receivers {
@@ -353,25 +402,43 @@ func (*Manager) extractPortsFromConfig(config otelv1beta1.Config) []uint32 {
 
 		if receiverEndpoint, ok := rm["endpoint"].(string); ok {
 			if port := extractPort(receiverEndpoint); port != 0 {
-				ports = append(ports, port)
+				if _, exists := portProtocols[port]; !exists {
+					portProtocols[port] = false
+				}
 			}
 		}
 
 		if protocols, ok := rm["protocols"].(map[string]any); ok {
-			for _, p := range protocols {
+			for protocolName, p := range protocols {
 				pm, ok := p.(map[string]any)
 				if !ok {
 					continue
 				}
 				if protocolEndpoint, ok := pm["endpoint"].(string); ok {
 					if port := extractPort(protocolEndpoint); port != 0 {
-						ports = append(ports, port)
+						portProtocols[port] = portProtocols[port] || strings.EqualFold(protocolName, "grpc")
 					}
 				}
 			}
 		}
 	}
 
+	ports := make([]collectorProtocolPort, 0, len(portProtocols))
+	for port, enableHTTP2 := range portProtocols {
+		ports = append(ports, collectorProtocolPort{
+			port:        port,
+			enableHTTP2: enableHTTP2,
+		})
+	}
+	slices.SortFunc(ports, func(a, b collectorProtocolPort) int {
+		if a.port < b.port {
+			return -1
+		}
+		if a.port > b.port {
+			return 1
+		}
+		return 0
+	})
 	return ports
 }
 
