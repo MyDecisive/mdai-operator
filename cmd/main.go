@@ -294,6 +294,7 @@ func main() {
 
 	if err = (&controller.XDSReconciler{
 		Client:     mgr.GetClient(),
+		APIReader:  mgr.GetAPIReader(),
 		Scheme:     mgr.GetScheme(),
 		XDSManager: xdsManager,
 	}).SetupWithManager(mgr); err != nil {
