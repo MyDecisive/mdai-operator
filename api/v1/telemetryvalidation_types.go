@@ -67,6 +67,9 @@ type TelemetryValidationSpec struct {
 
 	// +optional
 	ExporterRewrites []TelemetryValidationExporterRewrite `json:"exporterRewrites,omitempty"`
+
+	// +optional
+	ShadowDebugExporterEnabled bool `json:"shadowDebugExporterEnabled,omitempty"`
 }
 
 type TelemetryValidationStatus struct {
