@@ -72,6 +72,8 @@ spec:
                   - matchExporterPrefixes
                   type: object
                 type: array
+              shadowDebugExporterEnabled:
+                type: boolean
               signals:
                 items:
                   enum:

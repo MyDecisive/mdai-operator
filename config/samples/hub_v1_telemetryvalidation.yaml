@@ -10,6 +10,7 @@ spec:
     - metrics
     - logs
     - traces
+  shadowDebugExporterEnabled: false
   validator:
     image: ghcr.io/mydecisive/mdai-fidelity-validator:0.1.0
     port: 18081
