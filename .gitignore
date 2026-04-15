@@ -35,3 +35,6 @@ go.work
 /deployment/values.schema.json
 
 cover.txt
+
+# Helm chart packages
+mdai-operator-*.tgz
