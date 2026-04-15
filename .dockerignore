@@ -7,12 +7,17 @@ LICENSE
 Makefile
 PROJECT
 README.md
+config.json
 
 test/
 vendor/
 
 **/.git
+**/.github
+**/.idea
 **/.vscode
+**/.env
+**/.env.*
 **/*.swp
 **/tmp
 
