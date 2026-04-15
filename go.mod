@@ -27,10 +27,10 @@ require (
 	github.com/valkey-io/valkey-go/mock v1.0.62
 	go.opentelemetry.io/contrib/bridges/otellogr v0.10.0
 	go.opentelemetry.io/otel v1.43.0
-	go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploghttp v0.14.0
-	go.opentelemetry.io/otel/log v0.14.0
+	go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploghttp v0.19.0
+	go.opentelemetry.io/otel/log v0.19.0
 	go.opentelemetry.io/otel/sdk v1.43.0
-	go.opentelemetry.io/otel/sdk/log v0.14.0
+	go.opentelemetry.io/otel/sdk/log v0.19.0
 	go.uber.org/mock v0.5.2
 	go.uber.org/zap v1.27.0
 	google.golang.org/grpc v1.80.0
