@@ -13,6 +13,7 @@ import (
 
 	hubv1 "github.com/mydecisive/mdai-operator/api/v1"
 	otelv1beta1 "github.com/open-telemetry/opentelemetry-operator/apis/v1beta1"
+	prometheusv1 "github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring/v1"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
@@ -52,6 +53,9 @@ const (
 	defaultValidatorPort             int32 = 18081
 	defaultValidatorReceiverPort     int32 = 8126
 	defaultValidatorReplicas         int32 = 1
+	telemetryValidationLabelKey            = "hub.mydecisive.ai/telemetry-validation"
+	telemetryValidationRoleShadow          = "telemetry-validation-shadow-collector"
+	telemetryValidationRoleValidator       = "telemetry-validation-validator"
 )
 
 //go:embed config/telemetryvalidation_exporter_rewrites.yaml
@@ -85,6 +89,7 @@ type exporterRewriteRule struct {
 // +kubebuilder:rbac:groups=opentelemetry.io,resources=opentelemetrycollectors,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups="",resources=configmaps;services,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=apps,resources=deployments,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=monitoring.coreos.com,resources=servicemonitors,verbs=get;list;watch;create;update;patch;delete
 
 func (r *TelemetryValidationReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := logger.FromContext(ctx)
@@ -161,14 +166,14 @@ func (r *TelemetryValidationReconciler) Reconcile(ctx context.Context, req ctrl.
 		}
 
 		shadow.Labels = mergeMaps(source.Labels, map[string]string{
-			LabelManagedByMdaiKey:      LabelManagedByMdaiValue,
-			"hub.mydecisive.ai/source": source.Name,
-			"hub.mydecisive.ai/role":   "telemetry-validation-shadow",
-			"hub.mydecisive.ai/shadow": "true",
+			LabelManagedByMdaiKey:       LabelManagedByMdaiValue,
+			"hub.mydecisive.ai/source":  source.Name,
+			telemetryValidationLabelKey: validation.Name,
+			"hub.mydecisive.ai/role":    telemetryValidationRoleShadow,
+			"hub.mydecisive.ai/shadow":  "true",
 		})
 		shadow.Annotations = mergeMaps(source.Annotations, map[string]string{
-			"hub.mydecisive.ai/telemetry-validation": validation.Name,
-			"hub.mydecisive.ai/shadow":               "true",
+			"hub.mydecisive.ai/shadow": "true",
 		})
 
 		spec := *source.Spec.DeepCopy()
@@ -257,9 +262,9 @@ func (r *TelemetryValidationReconciler) reconcileValidator(
 			return err
 		}
 		cfgMap.Labels = map[string]string{
-			LabelManagedByMdaiKey:    LabelManagedByMdaiValue,
-			"hub.mydecisive.ai/tv":   validation.Name,
-			"hub.mydecisive.ai/role": "telemetry-validation-validator",
+			LabelManagedByMdaiKey:       LabelManagedByMdaiValue,
+			telemetryValidationLabelKey: validation.Name,
+			"hub.mydecisive.ai/role":    telemetryValidationRoleValidator,
 		}
 		cfgMap.Data = map[string]string{
 			"rules.yaml":         validatorRulesYAML,
@@ -282,9 +287,9 @@ func (r *TelemetryValidationReconciler) reconcileValidator(
 			return err
 		}
 		service.Labels = map[string]string{
-			LabelManagedByMdaiKey:    LabelManagedByMdaiValue,
-			"hub.mydecisive.ai/tv":   validation.Name,
-			"hub.mydecisive.ai/role": "telemetry-validation-validator",
+			LabelManagedByMdaiKey:       LabelManagedByMdaiValue,
+			telemetryValidationLabelKey: validation.Name,
+			"hub.mydecisive.ai/role":    telemetryValidationRoleValidator,
 		}
 		service.Spec = corev1.ServiceSpec{
 			Selector: map[string]string{
@@ -299,8 +304,62 @@ func (r *TelemetryValidationReconciler) reconcileValidator(
 					TargetPort: intstr.FromInt32(validatorPort),
 					Protocol:   corev1.ProtocolTCP,
 				},
+				corev1.ServicePort{
+					Name:       otelMetricsName,
+					Port:       otelMetricsPort,
+					TargetPort: intstr.FromString(otelMetricsName),
+					Protocol:   corev1.ProtocolTCP,
+				},
 			),
 			Type: corev1.ServiceTypeClusterIP,
+		}
+		return nil
+	})
+	if err != nil {
+		return "", "", "", err
+	}
+
+	monitor := &prometheusv1.ServiceMonitor{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      validatorMetricsMonitorNameForTV(validation.Name),
+			Namespace: validation.Namespace,
+		},
+	}
+	_, err = controllerutil.CreateOrUpdate(ctx, r.Client, monitor, func() error {
+		if err := controllerutil.SetControllerReference(validation, monitor, r.Scheme); err != nil {
+			return err
+		}
+
+		mdaiConnectionSourceLabel := prometheusv1.LabelName("__meta_kubernetes_service_label_hub_mydecisive_ai_telemetry_validation")
+		monitor.Labels = map[string]string{
+			LabelManagedByMdaiKey:       LabelManagedByMdaiValue,
+			telemetryValidationLabelKey: validation.Name,
+			"hub.mydecisive.ai/role":    telemetryValidationRoleValidator,
+		}
+		monitor.Spec = prometheusv1.ServiceMonitorSpec{
+			Selector: metav1.LabelSelector{
+				MatchLabels: map[string]string{
+					telemetryValidationLabelKey: validation.Name,
+					"hub.mydecisive.ai/role":    telemetryValidationRoleValidator,
+				},
+			},
+			NamespaceSelector: prometheusv1.NamespaceSelector{
+				MatchNames: []string{validation.Namespace},
+			},
+			Endpoints: []prometheusv1.Endpoint{
+				{
+					Port:        otelMetricsName,
+					Path:        "/metrics",
+					HonorLabels: true,
+					RelabelConfigs: []prometheusv1.RelabelConfig{
+						{
+							SourceLabels: []prometheusv1.LabelName{mdaiConnectionSourceLabel},
+							TargetLabel:  "mdai_connection",
+							Action:       "replace",
+						},
+					},
+				},
+			},
 		}
 		return nil
 	})
@@ -320,8 +379,8 @@ func (r *TelemetryValidationReconciler) reconcileValidator(
 		}
 		labels := map[string]string{
 			LabelManagedByMdaiKey:        LabelManagedByMdaiValue,
-			"hub.mydecisive.ai/tv":       validation.Name,
-			"hub.mydecisive.ai/role":     "telemetry-validation-validator",
+			telemetryValidationLabelKey:  validation.Name,
+			"hub.mydecisive.ai/role":     telemetryValidationRoleValidator,
 			"app.kubernetes.io/name":     validatorName,
 			"app.kubernetes.io/instance": validation.Name,
 		}
@@ -355,12 +414,18 @@ func (r *TelemetryValidationReconciler) reconcileValidator(
 									ContainerPort: validatorPort,
 									Protocol:      corev1.ProtocolTCP,
 								},
+								{
+									Name:          otelMetricsName,
+									ContainerPort: otelMetricsPort,
+									Protocol:      corev1.ProtocolTCP,
+								},
 							},
 							Env: []corev1.EnvVar{
 								{Name: "MDAI_DATADOG_AGENT_INGEST_ADDR", Value: fmt.Sprintf(":%d", validatorIngressPort)},
 								{Name: "MDAI_EXPORTER_API_ADDR", Value: fmt.Sprintf(":%d", validatorPort)},
 								{Name: "MDAI_FIDELITY_RULES_PATH", Value: "/etc/mdai-fidelity-validator/rules.yaml"},
 								{Name: "MDAI_FIDELITY_FIELD_MAPPING_PATH", Value: "/etc/mdai-fidelity-validator/field-mapping.yaml"},
+								{Name: "MDAI_CONNECTION_NAME", Value: validation.Name},
 							},
 							VolumeMounts: []corev1.VolumeMount{
 								{
@@ -397,11 +462,13 @@ func (r *TelemetryValidationReconciler) reconcileValidator(
 func (r *TelemetryValidationReconciler) deleteManagedValidatorResources(ctx context.Context, validation *hubv1.TelemetryValidation) error {
 	name := validatorNameForTV(validation.Name)
 	configName := validatorConfigMapNameForTV(validation.Name)
+	monitorName := validatorMetricsMonitorNameForTV(validation.Name)
 
 	for _, obj := range []client.Object{
 		&appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: validation.Namespace}},
 		&corev1.Service{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: validation.Namespace}},
 		&corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: configName, Namespace: validation.Namespace}},
+		&prometheusv1.ServiceMonitor{ObjectMeta: metav1.ObjectMeta{Name: monitorName, Namespace: validation.Namespace}},
 	} {
 		if err := r.Delete(ctx, obj); err != nil && !apierrors.IsNotFound(err) {
 			return err
@@ -416,6 +483,10 @@ func validatorNameForTV(tvName string) string {
 
 func validatorConfigMapNameForTV(tvName string) string {
 	return tvName + "-fidelity-validator-config"
+}
+
+func validatorMetricsMonitorNameForTV(tvName string) string {
+	return tvName + "-fidelity-validator-metrics"
 }
 
 func validatorPort(port int32) int32 {
