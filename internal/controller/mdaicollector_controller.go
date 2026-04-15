@@ -50,14 +50,14 @@ func (r *MdaiCollectorReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
-	_, err := r.ReconcileHandler(ctx, *NewMdaiCollectorAdapter(fetchedCR, log, r.Client, r.Recorder, r.Scheme))
+	result, err := r.ReconcileHandler(ctx, *NewMdaiCollectorAdapter(fetchedCR, log, r.Client, r.Recorder, r.Scheme))
 	if err != nil {
-		return ctrl.Result{}, err
+		return result, err
 	}
 
 	log.Info("-- Finished MdaiCollector reconciliation --")
 
-	return ctrl.Result{}, nil
+	return result, nil
 }
 
 func (*MdaiCollectorReconciler) ReconcileHandler(ctx context.Context, adapter Adapter) (ctrl.Result, error) {
