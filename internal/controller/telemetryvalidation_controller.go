@@ -185,6 +185,7 @@ func (r *TelemetryValidationReconciler) Reconcile(ctx context.Context, req ctrl.
 			validation.Name,
 			source.Name,
 			validation.Spec.ExporterRewrites,
+			validation.Spec.ShadowDebugExporterEnabled,
 		)
 		shadow.Spec = spec
 		return nil
@@ -698,6 +699,7 @@ func deriveShadowConfig(
 	validationName string,
 	collectorName string,
 	tvRules []hubv1.TelemetryValidationExporterRewrite,
+	shadowDebugExporterEnabled bool,
 ) otelv1beta1.Config {
 	shadow := *cfg.DeepCopy()
 	ensureDatadogReceiversIncludeMetadata(&shadow)
@@ -722,6 +724,9 @@ func deriveShadowConfig(
 		}
 
 		targetExporters := exportersMatchingRewriteRules(pipeline.Exporters, rewriteRules)
+		if shadowDebugExporterEnabled {
+			targetExporters = appendExporterOnce(targetExporters, "debug")
+		}
 		if len(targetExporters) == 0 {
 			continue
 		}
@@ -752,6 +757,10 @@ func deriveShadowConfig(
 		"collector":            collectorName,
 	}
 	for exporterName := range referencedExporters {
+		if exporterName == "debug" {
+			exporters[exporterName] = debugExporterConfig(shadow.Exporters.Object["debug"])
+			continue
+		}
 		if cfgExporter, ok := shadow.Exporters.Object[exporterName]; ok {
 			perExporterVars := map[string]string{}
 			maps.Copy(perExporterVars, templateVars)
@@ -762,6 +771,15 @@ func deriveShadowConfig(
 	shadow.Exporters.Object = exporters
 
 	return shadow
+}
+
+func debugExporterConfig(existing any) any {
+	if cfg, ok := existing.(map[string]any); ok {
+		return cfg
+	}
+	return map[string]any{
+		"verbosity": "detailed",
+	}
 }
 
 func rewriteShadowTelemetryServiceName(cfg *otelv1beta1.Config, shadowName string) {
@@ -861,6 +879,13 @@ func appendProcessorOnce(processors []string, processorName string) []string {
 		return processors
 	}
 	return append(processors, processorName)
+}
+
+func appendExporterOnce(exporters []string, exporterName string) []string {
+	if slices.Contains(exporters, exporterName) {
+		return exporters
+	}
+	return append(exporters, exporterName)
 }
 
 func rewriteExporterConfig(exporterName string, raw any, rules []exporterRewriteRule, templateVars map[string]string) any {
