@@ -84,14 +84,14 @@ func (r *MdaiHubReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
-	_, err := r.ReconcileHandler(ctx, *NewHubAdapter(fetchedCR, log, r.ZapLogger, r.Client, r.Recorder, r.Scheme, r.ValKeyClient, r.ValkeyExpiry))
+	result, err := r.ReconcileHandler(ctx, *NewHubAdapter(fetchedCR, log, r.ZapLogger, r.Client, r.Recorder, r.Scheme, r.ValKeyClient, r.ValkeyExpiry))
 	if err != nil {
-		return ctrl.Result{}, err
+		return result, err
 	}
 
 	log.Info("-- Finished MdaiHub reconciliation --")
 
-	return ctrl.Result{}, nil
+	return result, nil
 }
 
 func (*MdaiHubReconciler) ReconcileHandler(ctx context.Context, adapter Adapter) (ctrl.Result, error) {
