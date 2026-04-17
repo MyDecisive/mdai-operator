@@ -4,20 +4,22 @@ import (
 	"context"
 	"testing"
 
-	hubv1 "github.com/mydecisive/mdai-operator/api/v1"
-	otelv1beta1 "github.com/open-telemetry/opentelemetry-operator/apis/v1beta1"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/intstr"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+
+	otelv1beta1 "github.com/open-telemetry/opentelemetry-operator/apis/v1beta1"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	discoveryv1 "k8s.io/api/discovery/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/apimachinery/pkg/util/intstr"
 	ctrl "sigs.k8s.io/controller-runtime"
-	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+
+	hubv1 "github.com/mydecisive/mdai-operator/api/v1"
 )
 
 type fakeXDSManager struct {
@@ -521,30 +523,6 @@ func readyEndpointSlice(serviceName, namespace string, ports ...int32) *discover
 	return &discoveryv1.EndpointSlice{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      serviceName + "-slice",
-			Namespace: namespace,
-			Labels: map[string]string{
-				discoveryv1.LabelServiceName: serviceName,
-			},
-		},
-		AddressType: discoveryv1.AddressTypeIPv4,
-		Endpoints: []discoveryv1.Endpoint{{
-			Addresses:  []string{"10.0.0.1"},
-			Conditions: discoveryv1.EndpointConditions{Ready: &ready},
-		}},
-		Ports: slicePorts,
-	}
-}
-
-func notReadyEndpointSlice(serviceName, namespace string, ports ...int32) *discoveryv1.EndpointSlice {
-	ready := false
-	slicePorts := make([]discoveryv1.EndpointPort, 0, len(ports))
-	for _, port := range ports {
-		p := port
-		slicePorts = append(slicePorts, discoveryv1.EndpointPort{Port: &p, Protocol: ptrTo(corev1.ProtocolTCP)})
-	}
-	return &discoveryv1.EndpointSlice{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      serviceName + "-slice-not-ready",
 			Namespace: namespace,
 			Labels: map[string]string{
 				discoveryv1.LabelServiceName: serviceName,

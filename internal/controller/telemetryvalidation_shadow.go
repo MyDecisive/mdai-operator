@@ -7,16 +7,17 @@ import (
 	"strings"
 	"time"
 
-	hubv1 "github.com/mydecisive/mdai-operator/api/v1"
+	"k8s.io/apimachinery/pkg/types"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+
 	otelv1beta1 "github.com/open-telemetry/opentelemetry-operator/apis/v1beta1"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/types"
-	ctrl "sigs.k8s.io/controller-runtime"
-	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	logger "sigs.k8s.io/controller-runtime/pkg/log"
+
+	hubv1 "github.com/mydecisive/mdai-operator/api/v1"
 )
 
 func (r *TelemetryValidationReconciler) reconcileShadowCollector(
@@ -26,7 +27,7 @@ func (r *TelemetryValidationReconciler) reconcileShadowCollector(
 	validatorServiceName string,
 	resolvedValidatorEndpoint string,
 	validatorIngressPortStatus int32,
-) (ctrl.Result, error) {
+) (OperationResult, error) {
 	log := logger.FromContext(ctx)
 
 	sourceName := validation.Spec.CollectorRef.Name
@@ -35,16 +36,16 @@ func (r *TelemetryValidationReconciler) reconcileShadowCollector(
 	if err := r.Get(ctx, sourceKey, &source); err != nil {
 		if !apierrors.IsNotFound(err) {
 			log.Error(err, "unable to fetch referenced OpenTelemetryCollector", "collector", sourceName)
-			return ctrl.Result{}, err
+			return ContinueWithError(err)
 		}
 
 		metaCopy := validation.DeepCopy()
 		metaCopy.Status.ObservedGeneration = validation.Generation
 		setValidationCondition(&metaCopy.Status.Conditions, validation.Generation, metav1.ConditionFalse, "CollectorNotFound", fmt.Sprintf("Referenced collector %q not found", sourceName))
 		if statusErr := r.Status().Update(ctx, metaCopy); statusErr != nil {
-			return ctrl.Result{}, statusErr
+			return ContinueWithError(statusErr)
 		}
-		return ctrl.Result{}, nil
+		return ContinueProcessing()
 	}
 
 	shadowName := shadowCollectorName(source.Name)
@@ -54,7 +55,7 @@ func (r *TelemetryValidationReconciler) reconcileShadowCollector(
 		shadow := &otelv1beta1.OpenTelemetryCollector{}
 		if err := r.Get(ctx, shadowKey, shadow); err == nil {
 			if err := r.Delete(ctx, shadow); err != nil && !apierrors.IsNotFound(err) {
-				return ctrl.Result{}, err
+				return ContinueWithError(err)
 			}
 		}
 
@@ -67,7 +68,10 @@ func (r *TelemetryValidationReconciler) reconcileShadowCollector(
 		validation.Status.ObservedGeneration = validation.Generation
 		validation.Status.ActiveSignals = activeSignals(validation.Spec.Signals)
 		setValidationCondition(&validation.Status.Conditions, validation.Generation, metav1.ConditionFalse, "Disabled", "Telemetry validation shadow collector is disabled")
-		return ctrl.Result{}, r.Status().Update(ctx, validation)
+		if err := r.Status().Update(ctx, validation); err != nil {
+			return ContinueWithError(err)
+		}
+		return ContinueProcessing()
 	}
 
 	shadow := &otelv1beta1.OpenTelemetryCollector{
@@ -94,21 +98,21 @@ func (r *TelemetryValidationReconciler) reconcileShadowCollector(
 		})
 
 		spec := *source.Spec.DeepCopy()
-		spec.Config = deriveShadowConfig(
-			source.Spec.Config,
-			activeSignals(validation.Spec.Signals),
-			resolvedValidatorEndpoint,
-			validation.Namespace,
-			validation.Name,
-			source.Name,
-			validation.Spec.ExporterRewrites,
-			validation.Spec.ShadowDebugExporterEnabled,
-		)
+		spec.Config = deriveShadowConfig(shadowConfigParams{
+			Config:                     source.Spec.Config,
+			Signals:                    activeSignals(validation.Spec.Signals),
+			ValidatorEndpoint:          resolvedValidatorEndpoint,
+			Namespace:                  validation.Namespace,
+			ValidationName:             validation.Name,
+			CollectorName:              source.Name,
+			ExporterRewriteRules:       validation.Spec.ExporterRewrites,
+			ShadowDebugExporterEnabled: validation.Spec.ShadowDebugExporterEnabled,
+		})
 		shadow.Spec = spec
 		return nil
 	})
 	if err != nil {
-		return ctrl.Result{}, err
+		return ContinueWithError(err)
 	}
 
 	validation.Status.ShadowCollectorName = shadow.Name
@@ -121,18 +125,18 @@ func (r *TelemetryValidationReconciler) reconcileShadowCollector(
 	validation.Status.ActiveSignals = activeSignals(validation.Spec.Signals)
 	setValidationCondition(&validation.Status.Conditions, validation.Generation, metav1.ConditionTrue, "Ready", "Telemetry validation shadow collector is configured")
 	if err := r.Status().Update(ctx, validation); err != nil {
-		return ctrl.Result{}, err
+		return ContinueWithError(err)
 	}
 
 	ready, err := r.ensureShadowDeploymentHostAliases(ctx, validation.Namespace, shadow.Name, validatorServiceName)
 	if err != nil {
-		return ctrl.Result{}, err
+		return ContinueWithError(err)
 	}
 	if !ready {
-		return ctrl.Result{RequeueAfter: 5 * time.Second}, nil //nolint:mnd
+		return RequeueAfter(5*time.Second, nil) //nolint:mnd
 	}
 
-	return ctrl.Result{}, nil
+	return ContinueProcessing()
 }
 
 func shadowCollectorName(collectorName string) string {

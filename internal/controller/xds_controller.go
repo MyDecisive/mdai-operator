@@ -9,23 +9,24 @@ import (
 	"slices"
 	"strings"
 
-	hubv1 "github.com/mydecisive/mdai-operator/api/v1"
-	otelv1beta1 "github.com/open-telemetry/opentelemetry-operator/apis/v1beta1"
-	appsv1 "k8s.io/api/apps/v1"
-	corev1 "k8s.io/api/core/v1"
-	discoveryv1 "k8s.io/api/discovery/v1"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
-	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
-	logger "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+
+	otelv1beta1 "github.com/open-telemetry/opentelemetry-operator/apis/v1beta1"
+	appsv1 "k8s.io/api/apps/v1"
+	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	ctrl "sigs.k8s.io/controller-runtime"
+	logger "sigs.k8s.io/controller-runtime/pkg/log"
+
+	hubv1 "github.com/mydecisive/mdai-operator/api/v1"
 )
 
 const (
@@ -494,64 +495,4 @@ func extractPortForXDS(addr string) uint32 {
 		_, _ = fmt.Sscanf(addr, "%d", &port)
 	}
 	return port
-}
-
-func (r *XDSReconciler) collectorsWithReadyEndpoints(ctx context.Context, collectors []otelv1beta1.OpenTelemetryCollector) ([]otelv1beta1.OpenTelemetryCollector, error) {
-	readyCollectors := make([]otelv1beta1.OpenTelemetryCollector, 0, len(collectors))
-
-	for _, collector := range eligibleCollectorsForXDS(collectors) {
-		requiredPorts := extractCollectorPortsForXDS(collector.Spec.Config)
-		if len(requiredPorts) == 0 {
-			requiredPorts = []uint32{defaultOTLPGRPCPort, defaultOTLPHTTPPort}
-		}
-
-		var endpointSlices discoveryv1.EndpointSliceList
-		if err := r.reader().List(
-			ctx,
-			&endpointSlices,
-			client.InNamespace(collector.Namespace),
-			client.MatchingLabels{
-				discoveryv1.LabelServiceName: collector.Name + "-collector",
-			},
-		); err != nil {
-			return nil, err
-		}
-
-		readyPorts := readyEndpointPorts(endpointSlices.Items)
-		if hasAllPorts(readyPorts, requiredPorts) {
-			readyCollectors = append(readyCollectors, collector)
-		}
-	}
-
-	return readyCollectors, nil
-}
-
-func extractCollectorPortsForXDS(config otelv1beta1.Config) []uint32 {
-	return extractPortsFromConfigForXDS(config)
-}
-
-func readyEndpointPorts(endpointSlices []discoveryv1.EndpointSlice) map[uint32]struct{} {
-	ready := make(map[uint32]struct{})
-	for _, endpointSlice := range endpointSlices {
-		for _, endpoint := range endpointSlice.Endpoints {
-			if endpoint.Conditions.Ready != nil && !*endpoint.Conditions.Ready {
-				continue
-			}
-			for _, port := range endpointSlice.Ports {
-				if port.Port != nil && *port.Port > 0 {
-					ready[uint32(*port.Port)] = struct{}{}
-				}
-			}
-		}
-	}
-	return ready
-}
-
-func hasAllPorts(available map[uint32]struct{}, required []uint32) bool {
-	for _, port := range required {
-		if _, ok := available[port]; !ok {
-			return false
-		}
-	}
-	return true
 }
