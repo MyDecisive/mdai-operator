@@ -6,32 +6,25 @@ import (
 	"maps"
 	"slices"
 
-	hubv1 "github.com/mydecisive/mdai-operator/api/v1"
+	"k8s.io/apimachinery/pkg/api/meta"
+	"k8s.io/apimachinery/pkg/runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+
 	otelv1beta1 "github.com/open-telemetry/opentelemetry-operator/apis/v1beta1"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 	logger "sigs.k8s.io/controller-runtime/pkg/log"
+
+	hubv1 "github.com/mydecisive/mdai-operator/api/v1"
 )
 
 type TelemetryValidationReconciler struct {
 	client.Client
 
 	Scheme *runtime.Scheme
-}
-
-type telemetryValidationReconcileState struct {
-	validation *hubv1.TelemetryValidation
-
-	validatorName              string
-	validatorServiceName       string
-	resolvedValidatorEndpoint  string
-	validatorIngressPortStatus int32
 }
 
 const (
@@ -77,9 +70,7 @@ func (r *TelemetryValidationReconciler) Reconcile(ctx context.Context, req ctrl.
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
-	result, err := r.ReconcileHandler(ctx, &telemetryValidationReconcileState{
-		validation: &validation,
-	})
+	result, err := r.ReconcileHandler(ctx, NewTelemetryValidationAdapter(&validation, log, r.Client, r.Scheme, r))
 	if err != nil {
 		return result, err
 	}
@@ -89,26 +80,20 @@ func (r *TelemetryValidationReconciler) Reconcile(ctx context.Context, req ctrl.
 	return result, nil
 }
 
-func (r *TelemetryValidationReconciler) ReconcileHandler(ctx context.Context, state *telemetryValidationReconcileState) (ctrl.Result, error) {
-	operations := []ReconcileOperation{
-		func(opCtx context.Context) (OperationResult, error) {
-			return r.ensureValidatorReconciled(opCtx, state)
-		},
-		func(opCtx context.Context) (OperationResult, error) {
-			return r.ensureShadowCollectorReconciled(opCtx, state)
-		},
-	}
-	for _, operation := range operations {
-		result, err := operation(ctx)
-		if err != nil || result.RequeueRequest {
-			return ctrl.Result{RequeueAfter: result.RequeueDelay}, err
-		}
-		if result.CancelRequest {
-			return ctrl.Result{}, nil
-		}
+func (*TelemetryValidationReconciler) ReconcileHandler(ctx context.Context, adapter Adapter) (ctrl.Result, error) {
+	telemetryValidationAdapter, ok := adapter.(*TelemetryValidationAdapter)
+	if !ok {
+		return ctrl.Result{}, fmt.Errorf("unexpected adapter type: %T", adapter)
 	}
 
-	return ctrl.Result{}, nil
+	operations := []ReconcileOperation{
+		telemetryValidationAdapter.ensureDeletionProcessed,
+		telemetryValidationAdapter.ensureStatusInitialized,
+		telemetryValidationAdapter.ensureFinalizerInitialized,
+		telemetryValidationAdapter.ensureSynchronized,
+		telemetryValidationAdapter.ensureStatusSetToDone,
+	}
+	return RunReconcileOperations(ctx, operations)
 }
 
 func (r *TelemetryValidationReconciler) SetupWithManager(mgr ctrl.Manager) error {
@@ -159,47 +144,4 @@ func mergeMaps(a, b map[string]string) map[string]string {
 	maps.Copy(out, a)
 	maps.Copy(out, b)
 	return out
-}
-
-func (r *TelemetryValidationReconciler) ensureValidatorReconciled(ctx context.Context, state *telemetryValidationReconcileState) (OperationResult, error) {
-	validatorName, validatorServiceName, resolvedValidatorEndpoint, err := r.reconcileValidator(ctx, state.validation)
-	if err != nil {
-		return ContinueWithError(err)
-	}
-	validatorIngressPort, _, err := r.resolveValidatorIngressPorts(ctx, state.validation)
-	if err != nil {
-		return ContinueWithError(err)
-	}
-
-	state.validatorName = validatorName
-	state.validatorServiceName = validatorServiceName
-	state.resolvedValidatorEndpoint = resolvedValidatorEndpoint
-	state.validatorIngressPortStatus = 0
-	if state.validation.Spec.Enabled {
-		state.validatorIngressPortStatus = validatorIngressPort
-	}
-
-	return ContinueProcessing()
-}
-
-func (r *TelemetryValidationReconciler) ensureShadowCollectorReconciled(ctx context.Context, state *telemetryValidationReconcileState) (OperationResult, error) {
-	result, err := r.reconcileShadowCollector(
-		ctx,
-		state.validation,
-		state.validatorName,
-		state.validatorServiceName,
-		state.resolvedValidatorEndpoint,
-		state.validatorIngressPortStatus,
-	)
-	if err != nil {
-		return ContinueWithError(err)
-	}
-	if result.RequeueAfter > 0 {
-		return RequeueAfter(result.RequeueAfter, nil)
-	}
-	if result != (ctrl.Result{}) {
-		return OperationResult{}, fmt.Errorf("unexpected reconcile result: %+v", result)
-	}
-
-	return ContinueProcessing()
 }
