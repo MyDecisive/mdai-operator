@@ -6,31 +6,29 @@ import (
 	"slices"
 	"strings"
 
-	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/apimachinery/pkg/util/intstr"
-	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
-
+	hubv1 "github.com/mydecisive/mdai-operator/api/v1"
 	otelv1beta1 "github.com/open-telemetry/opentelemetry-operator/apis/v1beta1"
 	prometheusv1 "github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring/v1"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-
-	hubv1 "github.com/mydecisive/mdai-operator/api/v1"
+	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/intstr"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 )
 
 //nolint:revive // function-result-limit: returning these values avoids an extra struct in hot reconcile flow.
 func (r *TelemetryValidationReconciler) reconcileValidator(
 	ctx context.Context,
 	validation *hubv1.TelemetryValidation,
-) (string, string, string, int32, error) {
+) (string, string, string, error) {
 	if !validation.Spec.Enabled {
 		if err := r.deleteManagedValidatorResources(ctx, validation); err != nil {
-			return "", "", "", 0, err
+			return "", "", "", err
 		}
-		return "", "", "", 0, nil
+		return "", "", "", nil
 	}
 
 	validatorName := validatorNameForTV(validation.Name)
@@ -39,7 +37,7 @@ func (r *TelemetryValidationReconciler) reconcileValidator(
 	validatorPort := validatorPort(validation.Spec.Validator.Port)
 	validatorIngressPort, validatorIngressPorts, err := r.resolveValidatorIngressPorts(ctx, validation)
 	if err != nil {
-		return "", "", "", 0, err
+		return "", "", "", err
 	}
 	validatorRulesYAML, validatorFieldMappingYAML := resolveValidatorConfigYAMLs(validation)
 	validatorReplicas := validatorReplicas(validation.Spec.Validator.Replicas)
@@ -67,7 +65,7 @@ func (r *TelemetryValidationReconciler) reconcileValidator(
 		return nil
 	})
 	if err != nil {
-		return "", "", "", 0, err
+		return "", "", "", err
 	}
 
 	service := &corev1.Service{
@@ -110,7 +108,7 @@ func (r *TelemetryValidationReconciler) reconcileValidator(
 		return nil
 	})
 	if err != nil {
-		return "", "", "", 0, err
+		return "", "", "", err
 	}
 
 	monitor := &prometheusv1.ServiceMonitor{
@@ -158,7 +156,7 @@ func (r *TelemetryValidationReconciler) reconcileValidator(
 		return nil
 	})
 	if err != nil {
-		return "", "", "", 0, err
+		return "", "", "", err
 	}
 
 	deployment := &appsv1.Deployment{
@@ -246,11 +244,11 @@ func (r *TelemetryValidationReconciler) reconcileValidator(
 		return nil
 	})
 	if err != nil {
-		return "", "", "", 0, err
+		return "", "", "", err
 	}
 
 	//nolint:revive // in-cluster validator endpoint is HTTP by design.
-	return validatorName, validatorServiceName, fmt.Sprintf("http://%s.%s.svc.cluster.local:%d", validatorServiceName, validation.Namespace, validatorPort), validatorIngressPort, nil
+	return validatorName, validatorServiceName, fmt.Sprintf("http://%s.%s.svc.cluster.local:%d", validatorServiceName, validation.Namespace, validatorPort), nil
 }
 
 func (r *TelemetryValidationReconciler) deleteManagedValidatorResources(ctx context.Context, validation *hubv1.TelemetryValidation) error {
