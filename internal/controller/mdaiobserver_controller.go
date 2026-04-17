@@ -4,13 +4,15 @@ import (
 	"context"
 	"fmt"
 
-	mdaiv1 "github.com/mydecisive/mdai-operator/api/v1"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/tools/record"
-	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	ctrl "sigs.k8s.io/controller-runtime"
 	logger "sigs.k8s.io/controller-runtime/pkg/log"
+
+	mdaiv1 "github.com/mydecisive/mdai-operator/api/v1"
 )
 
 var _ Controller = (*MdaiObserverReconciler)(nil)
@@ -72,17 +74,7 @@ func (*MdaiObserverReconciler) ReconcileHandler(ctx context.Context, adapter Ada
 		observerAdapter.ensureSynchronized,
 		observerAdapter.ensureStatusSetToDone,
 	}
-	for _, operation := range operations {
-		result, err := operation(ctx)
-		if err != nil || result.RequeueRequest {
-			return ctrl.Result{RequeueAfter: result.RequeueDelay}, err
-		}
-		if result.CancelRequest {
-			return ctrl.Result{}, nil
-		}
-	}
-
-	return ctrl.Result{}, nil
+	return RunReconcileOperations(ctx, operations)
 }
 
 // SetupWithManager sets up the controller with the Manager.

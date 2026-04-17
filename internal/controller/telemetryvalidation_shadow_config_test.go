@@ -4,11 +4,13 @@ import (
 	"fmt"
 	"testing"
 
-	hubv1 "github.com/mydecisive/mdai-operator/api/v1"
-	otelv1beta1 "github.com/open-telemetry/opentelemetry-operator/apis/v1beta1"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	otelv1beta1 "github.com/open-telemetry/opentelemetry-operator/apis/v1beta1"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
+
+	hubv1 "github.com/mydecisive/mdai-operator/api/v1"
 )
 
 func TestDeriveShadowConfigInjectsFidelityProcessorAndMetadata(t *testing.T) {
@@ -41,7 +43,13 @@ func TestDeriveShadowConfigInjectsFidelityProcessorAndMetadata(t *testing.T) {
 		},
 	}
 
-	shadow := deriveShadowConfig(cfg, []hubv1.TelemetrySignal{hubv1.TelemetrySignalTraces}, "", "mdai", "sample", "gateway", nil, false)
+	shadow := deriveShadowConfig(shadowConfigParams{
+		Config:         cfg,
+		Signals:        []hubv1.TelemetrySignal{hubv1.TelemetrySignalTraces},
+		Namespace:      "mdai",
+		ValidationName: "sample",
+		CollectorName:  "gateway",
+	})
 
 	datadogReceiver, ok := shadow.Receivers.Object["datadog"].(map[string]any)
 	require.True(t, ok)
@@ -132,7 +140,13 @@ func TestDeriveShadowConfigDoesNotDuplicateFidelityProcessorInPipeline(t *testin
 		}},
 	}
 
-	shadow := deriveShadowConfig(cfg, []hubv1.TelemetrySignal{hubv1.TelemetrySignalLogs}, "", "mdai", "sample", "gateway", nil, false)
+	shadow := deriveShadowConfig(shadowConfigParams{
+		Config:         cfg,
+		Signals:        []hubv1.TelemetrySignal{hubv1.TelemetrySignalLogs},
+		Namespace:      "mdai",
+		ValidationName: "sample",
+		CollectorName:  "gateway",
+	})
 
 	pipeline := shadow.Service.Pipelines["logs"]
 	require.NotNil(t, pipeline)
@@ -170,7 +184,13 @@ func TestDeriveShadowConfigUsesMetricsSpecificCorrelationProcessors(t *testing.T
 		}},
 	}
 
-	shadow := deriveShadowConfig(cfg, []hubv1.TelemetrySignal{hubv1.TelemetrySignalMetrics}, "", "mdai", "sample", "gateway", nil, false)
+	shadow := deriveShadowConfig(shadowConfigParams{
+		Config:         cfg,
+		Signals:        []hubv1.TelemetrySignal{hubv1.TelemetrySignalMetrics},
+		Namespace:      "mdai",
+		ValidationName: "sample",
+		CollectorName:  "gateway",
+	})
 
 	pipeline := shadow.Service.Pipelines["metrics"]
 	require.NotNil(t, pipeline)
@@ -213,7 +233,14 @@ func TestDeriveShadowConfigTVRewriteOverridesDefaultByName(t *testing.T) {
 		},
 	}
 
-	shadow := deriveShadowConfig(cfg, []hubv1.TelemetrySignal{hubv1.TelemetrySignalLogs}, "", "mdai", "sample", "gateway", tvRules, false)
+	shadow := deriveShadowConfig(shadowConfigParams{
+		Config:               cfg,
+		Signals:              []hubv1.TelemetrySignal{hubv1.TelemetrySignalLogs},
+		Namespace:            "mdai",
+		ValidationName:       "sample",
+		CollectorName:        "gateway",
+		ExporterRewriteRules: tvRules,
+	})
 	exporterCfg, ok := shadow.Exporters.Object["datadog"].(map[string]any)
 	require.True(t, ok)
 	apiCfg, ok := exporterCfg["api"].(map[string]any)
@@ -242,7 +269,14 @@ func TestDeriveShadowConfigAddsDebugExporterWhenEnabled(t *testing.T) {
 		}},
 	}
 
-	shadow := deriveShadowConfig(cfg, []hubv1.TelemetrySignal{hubv1.TelemetrySignalLogs}, "", "mdai", "sample", "gateway", nil, true)
+	shadow := deriveShadowConfig(shadowConfigParams{
+		Config:                     cfg,
+		Signals:                    []hubv1.TelemetrySignal{hubv1.TelemetrySignalLogs},
+		Namespace:                  "mdai",
+		ValidationName:             "sample",
+		CollectorName:              "gateway",
+		ShadowDebugExporterEnabled: true,
+	})
 
 	pipeline := shadow.Service.Pipelines["logs"]
 	require.NotNil(t, pipeline)

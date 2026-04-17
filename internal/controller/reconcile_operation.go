@@ -3,6 +3,8 @@ package controller
 import (
 	"context"
 	"time"
+
+	ctrl "sigs.k8s.io/controller-runtime"
 )
 
 type ReconcileOperation func(context.Context) (OperationResult, error)
@@ -87,4 +89,24 @@ func RequeueAfter(delay time.Duration, errIn error) (OperationResult, error) {
 
 func ContinueProcessing() (OperationResult, error) {
 	return ContinueOperationResult(), nil
+}
+
+func RunReconcileOperations(ctx context.Context, operations []ReconcileOperation) (ctrl.Result, error) {
+	for _, operation := range operations {
+		result, err := operation(ctx)
+		if err != nil {
+			if result.RequeueRequest && result.RequeueDelay > 0 {
+				return ctrl.Result{RequeueAfter: result.RequeueDelay}, nil
+			}
+			return ctrl.Result{}, err
+		}
+		if result.RequeueRequest {
+			return ctrl.Result{RequeueAfter: result.RequeueDelay}, nil
+		}
+		if result.CancelRequest {
+			return ctrl.Result{}, nil
+		}
+	}
+
+	return ctrl.Result{}, nil
 }

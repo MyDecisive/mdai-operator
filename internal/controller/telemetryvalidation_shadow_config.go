@@ -1,7 +1,6 @@
 package controller
 
 import (
-	_ "embed"
 	"encoding/json"
 	"fmt"
 	"maps"
@@ -9,10 +8,14 @@ import (
 	"strings"
 	"sync"
 
-	hubv1 "github.com/mydecisive/mdai-operator/api/v1"
+	"sigs.k8s.io/yaml"
+
+	_ "embed"
+
 	otelv1beta1 "github.com/open-telemetry/opentelemetry-operator/apis/v1beta1"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
-	"sigs.k8s.io/yaml"
+
+	hubv1 "github.com/mydecisive/mdai-operator/api/v1"
 )
 
 //go:embed config/telemetryvalidation_exporter_rewrites.yaml
@@ -40,24 +43,26 @@ type exporterRewriteRule struct {
 	ReplaceStrings        map[string]string `yaml:"replace_strings"`
 }
 
-func deriveShadowConfig(
-	cfg otelv1beta1.Config,
-	signals []hubv1.TelemetrySignal,
-	validatorEndpoint string,
-	namespace string,
-	validationName string,
-	collectorName string,
-	tvRules []hubv1.TelemetryValidationExporterRewrite,
-	shadowDebugExporterEnabled bool,
-) otelv1beta1.Config {
-	shadow := *cfg.DeepCopy()
+type shadowConfigParams struct {
+	Config                     otelv1beta1.Config
+	Signals                    []hubv1.TelemetrySignal
+	ValidatorEndpoint          string
+	Namespace                  string
+	ValidationName             string
+	CollectorName              string
+	ExporterRewriteRules       []hubv1.TelemetryValidationExporterRewrite
+	ShadowDebugExporterEnabled bool
+}
+
+func deriveShadowConfig(params shadowConfigParams) otelv1beta1.Config {
+	shadow := *params.Config.DeepCopy()
 	ensureDatadogReceiversIncludeMetadata(&shadow)
 	ensureCorrelationProcessors(&shadow)
-	rewriteShadowTelemetryServiceName(&shadow, shadowCollectorName(collectorName))
-	rewriteRules := mergedExporterRewriteRules(tvRules)
+	rewriteShadowTelemetryServiceName(&shadow, shadowCollectorName(params.CollectorName))
+	rewriteRules := mergedExporterRewriteRules(params.ExporterRewriteRules)
 
-	enabledSignals := make(map[hubv1.TelemetrySignal]struct{}, len(signals))
-	for _, signal := range signals {
+	enabledSignals := make(map[hubv1.TelemetrySignal]struct{}, len(params.Signals))
+	for _, signal := range params.Signals {
 		enabledSignals[signal] = struct{}{}
 	}
 
@@ -73,7 +78,7 @@ func deriveShadowConfig(
 		}
 
 		targetExporters := exportersMatchingRewriteRules(pipeline.Exporters, rewriteRules)
-		if shadowDebugExporterEnabled {
+		if params.ShadowDebugExporterEnabled {
 			targetExporters = appendExporterOnce(targetExporters, "debug")
 		}
 		if len(targetExporters) == 0 {
@@ -98,12 +103,12 @@ func deriveShadowConfig(
 	shadow.Service.Pipelines = filteredPipelines
 
 	exporters := make(map[string]any)
-	validatorBase := validatorExportBaseURL(validatorEndpoint)
+	validatorBase := validatorExportBaseURL(params.ValidatorEndpoint)
 	templateVars := map[string]string{
 		"validator_endpoint":   validatorBase,
-		"namespace":            namespace,
-		"telemetry_validation": validationName,
-		"collector":            collectorName,
+		"namespace":            params.Namespace,
+		"telemetry_validation": params.ValidationName,
+		"collector":            params.CollectorName,
 	}
 	for exporterName := range referencedExporters {
 		if exporterName == "debug" {
@@ -259,7 +264,7 @@ func validatorExportBaseURL(validatorEndpoint string) string {
 	if strings.TrimSpace(validatorEndpoint) != "" {
 		return strings.TrimSuffix(validatorEndpoint, "/")
 	}
-	//nolint:revive // in-cluster validator endpoint is HTTP by design.
+
 	return "http://mdai-fidelity-validator.mdai.svc.cluster.local:18081"
 }
 
