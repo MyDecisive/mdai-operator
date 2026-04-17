@@ -144,6 +144,82 @@ func TestXDSReconcileUpdatesManagedProxyServicePorts(t *testing.T) {
 	}, updated.Spec.Ports)
 }
 
+func TestXDSReconcileDoesNotAddManagedPortWhenServiceAlreadyExposesSamePort(t *testing.T) {
+	t.Setenv(xdsProxyServiceNameEnv, "envoy-proxy")
+	t.Setenv(xdsProxyServiceNamespaceEnv, "mdai")
+
+	scheme := runtime.NewScheme()
+	require.NoError(t, corev1.AddToScheme(scheme))
+	require.NoError(t, discoveryv1.AddToScheme(scheme))
+	require.NoError(t, hubv1.AddToScheme(scheme))
+	require.NoError(t, otelv1beta1.AddToScheme(scheme))
+
+	manager := &fakeXDSManager{}
+	service := &corev1.Service{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "envoy-proxy",
+			Namespace: "mdai",
+		},
+		Spec: corev1.ServiceSpec{
+			Ports: []corev1.ServicePort{
+				{
+					Port:       8126,
+					TargetPort: intstr.FromInt32(8126),
+					Protocol:   corev1.ProtocolTCP,
+				},
+			},
+		},
+	}
+	collector := &otelv1beta1.OpenTelemetryCollector{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "gateway",
+			Namespace: "mdai",
+			Labels: map[string]string{
+				xdsRoleLabelKey: connectionCollectorRole,
+			},
+		},
+		Spec: otelv1beta1.OpenTelemetryCollectorSpec{
+			Config: otelv1beta1.Config{
+				Receivers: otelv1beta1.AnyConfig{
+					Object: map[string]any{
+						"datadog": map[string]any{
+							"endpoint": ":8126",
+						},
+					},
+				},
+			},
+		},
+	}
+	collectorEndpoints := readyEndpointSlice("gateway-collector", "mdai", 8126)
+
+	cl := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(service, collector, collectorEndpoints).
+		Build()
+
+	reconciler := &XDSReconciler{
+		Client:     cl,
+		Scheme:     scheme,
+		XDSManager: manager,
+	}
+
+	_, err := reconciler.Reconcile(context.Background(), ctrl.Request{
+		NamespacedName: types.NamespacedName{Name: "gateway", Namespace: "mdai"},
+	})
+	require.NoError(t, err)
+	require.True(t, manager.called, "xDS manager should be called")
+
+	updated := &corev1.Service{}
+	require.NoError(t, cl.Get(context.Background(), types.NamespacedName{
+		Name:      "envoy-proxy",
+		Namespace: "mdai",
+	}, updated))
+
+	require.Len(t, updated.Spec.Ports, 1)
+	assert.Equal(t, int32(8126), updated.Spec.Ports[0].Port)
+	assert.Empty(t, updated.Spec.Ports[0].Name)
+}
+
 func TestXDSReconcileCreatesProxyServiceFromMarkedDeployment(t *testing.T) {
 	t.Setenv(xdsProxyServiceNameEnv, "")
 	t.Setenv(xdsProxyServiceNamespaceEnv, "")

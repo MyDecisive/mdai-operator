@@ -372,13 +372,20 @@ func managedServicePorts(ports []uint32) []corev1.ServicePort {
 
 func mergeServicePorts(existing, managed []corev1.ServicePort) []corev1.ServicePort {
 	result := make([]corev1.ServicePort, 0, len(existing)+len(managed))
+	existingPorts := make(map[int32]struct{}, len(existing))
 	for _, port := range existing {
 		if strings.HasPrefix(port.Name, xdsManagedServicePortPrefix) {
 			continue
 		}
 		result = append(result, port)
+		existingPorts[port.Port] = struct{}{}
 	}
-	result = append(result, managed...)
+	for _, port := range managed {
+		if _, exists := existingPorts[port.Port]; exists {
+			continue
+		}
+		result = append(result, port)
+	}
 	slices.SortFunc(result, func(a, b corev1.ServicePort) int {
 		if a.Port < b.Port {
 			return -1
