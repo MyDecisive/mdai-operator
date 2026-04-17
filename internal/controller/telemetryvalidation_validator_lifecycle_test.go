@@ -182,6 +182,7 @@ func TestReconcileValidatorLifecycleUsesEmbeddedDefaultsWhenValidatorConfigEmpty
 	assert.Contains(t, cfg.Data["rules.yaml"], "required_attributes:")
 	assert.Contains(t, cfg.Data["field-mapping.yaml"], "signals:")
 	assert.Contains(t, cfg.Data["field-mapping.yaml"], "correlation_id:")
+	assert.Contains(t, cfg.Data["field-mapping.yaml"], "\"contains:.tags[|tag:correlation_id\"")
 }
 
 func TestReconcileCreatesShadowCollectorLabels(t *testing.T) {
