@@ -336,6 +336,10 @@ helm-update: manifests kustomize helmify helm-docs helm-values-schema-json-plugi
 	@pushd config/manager > /dev/null && $(KUSTOMIZE) edit set image controller=$(IMG) && popd > /dev/null
 	$(call vecho,"🛠️ Kustomizing and Helmifying...")
 	@$(KUSTOMIZE) build config/default | $(HELMIFY) $(HELMIFY_ARGS) $(CHART_PATH) > /dev/null 2>&1
+	$(call vecho,"🛠️ Wrapping xds service template...")
+	@$(CHART_PATH)/files/wrap_xds_service.sh
+	$(call vecho,"🛠️ Enabling xds service by default...")
+	@$(YQ) -i '.xdsService.enabled = true' $(CHART_PATH)/values.yaml
 	$(call vecho,"🛠️ Adding conditionals for cert manager...")
 	@$(CHART_PATH)/files/no_cert_manager_option.sh
 	$(call vecho,"📈 Updating Helm chart version to $(VERSION)...")

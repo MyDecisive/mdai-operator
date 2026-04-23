@@ -159,6 +159,8 @@ rules:
   resources:
   - opentelemetrycollectors
   verbs:
+  - create
+  - delete
   - get
   - list
   - patch

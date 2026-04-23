@@ -1,0 +1,17 @@
+{{- if .Values.xdsService.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "deployment.fullname" . }}-xds-service
+  labels:
+    control-plane: controller-manager
+  {{- include "deployment.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.xdsService.type }}
+  selector:
+    app.kubernetes.io/name: mdai-operator
+    control-plane: controller-manager
+    {{- include "deployment.selectorLabels" . | nindent 4 }}
+  ports:
+  {{- .Values.xdsService.ports | toYaml | nindent 2 }}
+{{- end }}

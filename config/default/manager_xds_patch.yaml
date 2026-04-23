@@ -1,0 +1,11 @@
+# This patch adds the args and container port for exposing the xDS endpoint.
+- op: add
+  path: /spec/template/spec/containers/0/args/-
+  value: --xds-port=18000
+
+- op: add
+  path: /spec/template/spec/containers/0/ports/-
+  value:
+    containerPort: 18000
+    name: xds
+    protocol: TCP
