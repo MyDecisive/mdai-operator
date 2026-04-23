@@ -17,8 +17,8 @@ controllerManager:
       useConsoleLogEncoder: "false"
       valkeyAuditStreamExpiryMs: "2592000000"
     image:
-      repository: ghcr.io/mydecisive/mdai-operator
-      tag: 0.2.13
+      repository: public.ecr.aws/decisiveai/mdai-operator
+      tag: 0.2.12
     resources:
       limits:
         cpu: 500m

@@ -10,11 +10,9 @@ spec:
     - metrics
     - logs
     - traces
-  shadowDebugExporterEnabled: false
   validator:
-    image: ghcr.io/mydecisive/mdai-fidelity-validator:0.1.0
-    port: 18081
-    rulesYAML: |
-      rules: []
-    fieldMappingYAML: |
-      mappings: []
+    endpoint: http://mdai-fidelity-validator.mdai.svc.cluster.local:443
+  shadowCollector:
+    enabled: true
+  ingressCapture:
+    enabled: true

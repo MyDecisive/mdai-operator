@@ -11,11 +11,9 @@ linters:
     - depguard
     - dupl
     - err113
-    - exhaustive
     - funlen
     - gocognit
     - goconst
-    - godoclint
     - godot
     - gochecknoglobals
     - godox
@@ -87,8 +85,6 @@ linters:
         - name: function-length
           exclude: [ "**/*_test.go" ]
           disabled: true
-        - name: identical-switch-branches
-          disabled: true
         - name: line-length-limit
           disabled: true
         - name: max-public-structs
@@ -103,8 +99,6 @@ linters:
         - name: unchecked-type-assertion
           disabled: true
         - name: unused-parameter
-          disabled: true
-        - name: use-slices-sort
           disabled: true
         - name: var-naming
           disabled: true
@@ -160,7 +154,6 @@ linters:
       - path: _test\.go
         linters:
           - cyclop
-          - dogsled
           - dupl
           - funlen
           - gosec
