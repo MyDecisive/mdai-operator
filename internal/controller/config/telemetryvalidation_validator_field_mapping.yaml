@@ -30,6 +30,15 @@ signals:
       - "[0].ddtags|tag:correlation_id"
       - "ddtags|tag:correlation_id"
   traces:
+    correlation_id:
+      - correlation_id
+      - "suffix:.correlation_id"
+      - "suffix:.meta.correlation_id"
+      - "suffix:.ddtags|tag:correlation_id"
+      - "contains:.tags[|tag:correlation_id"
+    env:
+      - env
+      - "suffix:.env"
     trace_id:
       - trace_id
       - "suffix:.trace_id"
@@ -41,11 +50,21 @@ signals:
     service:
       - service
       - "suffix:.service"
-    operation:
-      - operation
+    operation_name:
+      - operation_name
+      - "suffix:.operation_name"
       - "suffix:.name"
       - "suffix:.operation"
+    resource_name:
+      - resource_name
+      - "suffix:.resource_name"
       - "suffix:.resource"
+    status:
+      - status
+      - "suffix:.status"
+    ingestion_reason:
+      - ingestion_reason
+      - "suffix:.ingestion_reason"
   metrics:
     metric_name:
       - metric_name
@@ -67,3 +86,13 @@ signals:
     correlation_id:
       - correlation_id
       - "contains:.tags[|tag:correlation_id"
+exporters:
+  datadog:
+    signals:
+      traces:
+        operation_name:
+          - "suffix:.resource"
+          - "suffix:.name"
+        resource_name:
+          - "suffix:.meta.dd.span.Resource"
+          - "suffix:.resource"
