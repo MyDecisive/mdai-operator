@@ -47,6 +47,7 @@ const (
 var (
 	errProxyServiceNotConfigured = errors.New("proxy service not configured")
 	errMarkedProxyServiceMissing = errors.New("marked proxy service missing")
+	errProxyServiceNotFound      = errors.New("proxy service not found")
 )
 
 // XDSManager defines the interface for updating the xDS snapshot
@@ -135,21 +136,12 @@ func (r *XDSReconciler) SetupWithManager(mgr ctrl.Manager) error {
 func (r *XDSReconciler) reconcileProxyServicePorts(ctx context.Context, collectors []otelv1beta1.OpenTelemetryCollector) error {
 	desiredManagedPorts := managedServicePorts(discoveredCollectorPorts(collectors))
 
-	var (
-		service *corev1.Service
-		err     error
-	)
-	if len(desiredManagedPorts) > 0 {
-		service, err = r.getOrCreateProxyService(ctx, desiredManagedPorts)
-		if err != nil {
-			return err
-		}
-	} else {
-		// No collectors: find an existing service to clean up stale managed ports,
-		// but do not create one.
-		if service, err = r.findExistingProxyService(ctx); err != nil || service == nil {
-			return err
-		}
+	service, err := r.resolveProxyService(ctx, desiredManagedPorts)
+	if err != nil {
+		return err
+	}
+	if service == nil {
+		return nil
 	}
 
 	updatedPorts := mergeServicePorts(service.Spec.Ports, desiredManagedPorts)
@@ -162,8 +154,24 @@ func (r *XDSReconciler) reconcileProxyServicePorts(ctx context.Context, collecto
 	return r.Update(ctx, service)
 }
 
+// resolveProxyService returns the proxy service to reconcile ports on. When there are desired
+// ports it creates the service if missing; when there are none it looks up an existing service
+// to allow stale managed ports to be cleaned up. Returns (nil, nil) when no service exists and
+// none should be created.
+func (r *XDSReconciler) resolveProxyService(ctx context.Context, desiredManagedPorts []corev1.ServicePort) (*corev1.Service, error) {
+	if len(desiredManagedPorts) > 0 {
+		return r.getOrCreateProxyService(ctx, desiredManagedPorts)
+	}
+
+	service, err := r.findExistingProxyService(ctx)
+	if errors.Is(err, errProxyServiceNotFound) {
+		return nil, nil //nolint:nilnil // caller checks service == nil to detect this case
+	}
+	return service, err
+}
+
 // findExistingProxyService locates the proxy service using the same resolution order as
-// getOrCreateProxyService but never creates one. Returns (nil, nil) if none exists.
+// getOrCreateProxyService but never creates one. Returns errProxyServiceNotFound if none exists.
 func (r *XDSReconciler) findExistingProxyService(ctx context.Context) (*corev1.Service, error) {
 	serviceName := strings.TrimSpace(os.Getenv(xdsProxyServiceNameEnv))
 	serviceNamespace := strings.TrimSpace(os.Getenv(xdsProxyServiceNamespaceEnv))
@@ -174,7 +182,7 @@ func (r *XDSReconciler) findExistingProxyService(ctx context.Context) (*corev1.S
 		} else if !apierrors.IsNotFound(err) {
 			return nil, err
 		}
-		return nil, nil
+		return nil, errProxyServiceNotFound
 	}
 
 	if service, err := r.getMarkedProxyService(ctx); err == nil {
@@ -183,7 +191,7 @@ func (r *XDSReconciler) findExistingProxyService(ctx context.Context) (*corev1.S
 		return nil, err
 	}
 
-	return nil, nil
+	return nil, errProxyServiceNotFound
 }
 
 func (r *XDSReconciler) getOrCreateProxyService(ctx context.Context, desiredManagedPorts []corev1.ServicePort) (*corev1.Service, error) {
@@ -259,19 +267,14 @@ func (r *XDSReconciler) getMarkedProxyService(ctx context.Context) (*corev1.Serv
 		return nil, err
 	}
 
-	var matches []corev1.Service
-	for _, service := range services.Items {
-		matches = append(matches, service)
-	}
-
-	switch len(matches) {
+	switch len(services.Items) {
 	case 0:
 		return nil, errMarkedProxyServiceMissing
 	case 1:
-		match := matches[0]
+		match := services.Items[0]
 		return &match, nil
 	default:
-		return nil, fmt.Errorf("found %d services marked with %q=true; expected exactly one", len(matches), xdsProxyMarkerKey)
+		return nil, fmt.Errorf("found %d services marked with %q=true; expected exactly one", len(services.Items), xdsProxyMarkerKey)
 	}
 }
 
@@ -285,12 +288,7 @@ func (r *XDSReconciler) createProxyServiceFromMarkedDeployment(ctx context.Conte
 		return nil, err
 	}
 
-	var matches []appsv1.Deployment
-	for _, deployment := range deployments.Items {
-		matches = append(matches, deployment)
-	}
-
-	switch len(matches) {
+	switch len(deployments.Items) {
 	case 0:
 		return nil, fmt.Errorf(
 			"no proxy service target found; set %s/%s, mark one Service with %q=true, or mark one Deployment with %q=true",
@@ -300,7 +298,7 @@ func (r *XDSReconciler) createProxyServiceFromMarkedDeployment(ctx context.Conte
 			xdsProxyMarkerKey,
 		)
 	case 1:
-		deployment := matches[0]
+		deployment := deployments.Items[0]
 		selector := deployment.Spec.Selector.MatchLabels
 		if len(selector) == 0 {
 			return nil, fmt.Errorf(
@@ -341,7 +339,7 @@ func (r *XDSReconciler) createProxyServiceFromMarkedDeployment(ctx context.Conte
 		}
 		return service, nil
 	default:
-		return nil, fmt.Errorf("found %d deployments marked with %q=true; expected exactly one", len(matches), xdsProxyMarkerKey)
+		return nil, fmt.Errorf("found %d deployments marked with %q=true; expected exactly one", len(deployments.Items), xdsProxyMarkerKey)
 	}
 }
 

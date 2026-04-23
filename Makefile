@@ -103,6 +103,14 @@ lint-fix: golangci-lint ## Run golangci-lint linter and perform fixes
 lint-config: golangci-lint ## Verify golangci-lint linter configuration
 	$(GOLANGCI_LINT) config verify
 
+.PHONY: fix
+fix:
+	go fix ./...
+
+.PHONY: fix-diff
+fix-diff:
+	go fix -diff ./...
+
 .PHONY: tidy
 tidy:
 	@$(GO) mod tidy
@@ -220,7 +228,7 @@ CONTROLLER_TOOLS_VERSION ?= v0.19.0
 ENVTEST_VERSION ?= $(shell go list -m -f "{{ .Version }}" sigs.k8s.io/controller-runtime | awk -F'[v.]' '{printf "release-%d.%d", $$2, $$3}')
 #ENVTEST_K8S_VERSION is the version of Kubernetes to use for setting up ENVTEST binaries (i.e. 1.31)
 ENVTEST_K8S_VERSION ?= $(shell go list -m -f "{{ .Version }}" k8s.io/api | awk -F'[v.]' '{printf "1.%d", $$3}')
-GOLANGCI_LINT_VERSION ?= v2.4
+GOLANGCI_LINT_VERSION ?= v2.11.4
 HELMIFY_VERSION ?= e57c93d0641d5699967d861dbc055b908d6c671f
 HELM_DOCS_VERSION ?= v1.14.2
 HELM_VERSION ?= v3.19.4

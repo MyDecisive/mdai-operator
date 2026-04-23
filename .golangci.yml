@@ -4,16 +4,20 @@ run:
   allow-serial-runners: true
   relative-path-mode: gomod
   modules-download-mode: readonly
+issues:
+  max-same-issues: 20
+  max-issues-per-linter: 0
 linters:
   default: all
   disable:
     - cyclop
-    - depguard
     - dupl
     - err113
+    - exhaustive
     - funlen
     - gocognit
     - goconst
+    - godoclint
     - godot
     - gochecknoglobals
     - godox
@@ -21,7 +25,6 @@ linters:
     - lll
     - maintidx
     - nlreturn
-    - noctx
     - noinlineerr
     - nolintlint
     - paralleltest
@@ -35,10 +38,6 @@ linters:
     - wsl_v5
 
   settings:
-    cyclop:
-      max-complexity: 15
-    funlen:
-      lines: 85
     gocritic:
       enable-all: true
       disabled-checks:
@@ -54,7 +53,6 @@ linters:
         - shadow
     exhaustruct:
       include:
-        - github.com/mydecisive/mdai-gateway/internal/
         - github.com/mydecisive/mdai-operator/internal/
     testifylint:
       enable-all: true
@@ -102,18 +100,6 @@ linters:
           disabled: true
         - name: var-naming
           disabled: true
-    tagliatelle:
-      case:
-        rules:
-          json: camel
-          yaml: camel
-          xml: camel
-          toml: camel
-          bson: camel
-          avro: snake
-          mapstructure: kebab
-          env: upperSnake
-          envconfig: upperSnake
     unparam:
       check-exported: true
     unused:
@@ -159,13 +145,12 @@ linters:
           - gosec
           - maintidx
           - unparam
+          - noctx
       - path: ^test\/
         linters:
           - gosec
           - mnd
-      - linters:
-          - lll
-        path: internal/*
+          - noctx
 formatters:
   enable:
     - gofmt
@@ -181,15 +166,3 @@ formatters:
           replacement: 'any'
         - pattern: 'a[b:len(a)]'
           replacement: 'a[b:]'
-    gci:
-      sections:
-        - standard
-        - default
-        - blank
-        - dot
-        - alias
-        - localmodule
-      no-inline-comments: false
-      no-prefix-comments: false
-      custom-order: false
-      no-lex-order: false

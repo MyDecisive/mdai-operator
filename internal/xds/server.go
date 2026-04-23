@@ -38,7 +38,7 @@ func (s *Server) Start(ctx context.Context) error {
 	routeservice.RegisterRouteDiscoveryServiceServer(grpcServer, srv)
 	listenerservice.RegisterListenerDiscoveryServiceServer(grpcServer, srv)
 
-	lis, err := net.Listen("tcp", fmt.Sprintf(":%d", s.port))
+	lis, err := (&net.ListenConfig{}).Listen(ctx, "tcp", fmt.Sprintf(":%d", s.port))
 	if err != nil {
 		return err
 	}
