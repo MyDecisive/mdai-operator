@@ -3,16 +3,11 @@ package controller
 import (
 	"context"
 	"fmt"
-	"slices"
-	"strings"
-	"time"
 
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
 	otelv1beta1 "github.com/open-telemetry/opentelemetry-operator/apis/v1beta1"
-	appsv1 "k8s.io/api/apps/v1"
-	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	logger "sigs.k8s.io/controller-runtime/pkg/log"
@@ -59,16 +54,17 @@ func (r *TelemetryValidationReconciler) reconcileShadowCollector(
 			}
 		}
 
-		validation.Status.ShadowCollectorName = ""
-		validation.Status.ShadowServiceName = ""
-		validation.Status.ValidatorName = validatorName
-		validation.Status.ValidatorService = validatorServiceName
-		validation.Status.ValidatorEndpoint = resolvedValidatorEndpoint
-		validation.Status.ValidatorIngressPort = validatorIngressPortStatus
-		validation.Status.ObservedGeneration = validation.Generation
-		validation.Status.ActiveSignals = activeSignals(validation.Spec.Signals)
-		setValidationCondition(&validation.Status.Conditions, validation.Generation, metav1.ConditionFalse, "Disabled", "Telemetry validation shadow collector is disabled")
-		if err := r.Status().Update(ctx, validation); err != nil {
+		metaCopy := validation.DeepCopy()
+		metaCopy.Status.ShadowCollectorName = ""
+		metaCopy.Status.ShadowServiceName = ""
+		metaCopy.Status.ValidatorName = validatorName
+		metaCopy.Status.ValidatorService = validatorServiceName
+		metaCopy.Status.ValidatorEndpoint = resolvedValidatorEndpoint
+		metaCopy.Status.ValidatorIngressPort = validatorIngressPortStatus
+		metaCopy.Status.ObservedGeneration = validation.Generation
+		metaCopy.Status.ActiveSignals = activeSignals(validation.Spec.Signals)
+		setValidationCondition(&metaCopy.Status.Conditions, validation.Generation, metav1.ConditionFalse, "Disabled", "Telemetry validation shadow collector is disabled")
+		if err := r.Status().Update(ctx, metaCopy); err != nil {
 			return ContinueWithError(err)
 		}
 		return ContinueProcessing()
@@ -115,25 +111,18 @@ func (r *TelemetryValidationReconciler) reconcileShadowCollector(
 		return ContinueWithError(err)
 	}
 
-	validation.Status.ShadowCollectorName = shadow.Name
-	validation.Status.ShadowServiceName = shadow.Name + "-collector"
-	validation.Status.ValidatorName = validatorName
-	validation.Status.ValidatorService = validatorServiceName
-	validation.Status.ValidatorEndpoint = resolvedValidatorEndpoint
-	validation.Status.ValidatorIngressPort = validatorIngressPortStatus
-	validation.Status.ObservedGeneration = validation.Generation
-	validation.Status.ActiveSignals = activeSignals(validation.Spec.Signals)
-	setValidationCondition(&validation.Status.Conditions, validation.Generation, metav1.ConditionTrue, "Ready", "Telemetry validation shadow collector is configured")
-	if err := r.Status().Update(ctx, validation); err != nil {
+	metaCopy := validation.DeepCopy()
+	metaCopy.Status.ShadowCollectorName = shadow.Name
+	metaCopy.Status.ShadowServiceName = shadow.Name + "-collector"
+	metaCopy.Status.ValidatorName = validatorName
+	metaCopy.Status.ValidatorService = validatorServiceName
+	metaCopy.Status.ValidatorEndpoint = resolvedValidatorEndpoint
+	metaCopy.Status.ValidatorIngressPort = validatorIngressPortStatus
+	metaCopy.Status.ObservedGeneration = validation.Generation
+	metaCopy.Status.ActiveSignals = activeSignals(validation.Spec.Signals)
+	setValidationCondition(&metaCopy.Status.Conditions, validation.Generation, metav1.ConditionTrue, "Ready", "Telemetry validation shadow collector is configured")
+	if err := r.Status().Update(ctx, metaCopy); err != nil {
 		return ContinueWithError(err)
-	}
-
-	ready, err := r.ensureShadowDeploymentHostAliases(ctx, validation.Namespace, shadow.Name, validatorServiceName)
-	if err != nil {
-		return ContinueWithError(err)
-	}
-	if !ready {
-		return RequeueAfter(5*time.Second, nil) //nolint:mnd
 	}
 
 	return ContinueProcessing()
@@ -141,76 +130,4 @@ func (r *TelemetryValidationReconciler) reconcileShadowCollector(
 
 func shadowCollectorName(collectorName string) string {
 	return collectorName + "-shadow"
-}
-
-func (r *TelemetryValidationReconciler) ensureShadowDeploymentHostAliases(ctx context.Context, namespace, shadowCollector, validatorServiceName string) (bool, error) {
-	if strings.TrimSpace(validatorServiceName) == "" {
-		return true, nil
-	}
-	validatorService := &corev1.Service{}
-	if err := r.Get(ctx, types.NamespacedName{Name: validatorServiceName, Namespace: namespace}, validatorService); err != nil {
-		if apierrors.IsNotFound(err) {
-			return false, nil
-		}
-		return false, err
-	}
-	if validatorService.Spec.ClusterIP == "" || validatorService.Spec.ClusterIP == corev1.ClusterIPNone {
-		return false, nil
-	}
-
-	deployment := &appsv1.Deployment{}
-	if err := r.Get(ctx, types.NamespacedName{Name: shadowCollector + "-collector", Namespace: namespace}, deployment); err != nil {
-		if apierrors.IsNotFound(err) {
-			return false, nil
-		}
-		return false, err
-	}
-
-	desiredAlias := corev1.HostAlias{
-		IP: validatorService.Spec.ClusterIP,
-		Hostnames: []string{
-			"api.datadoghq.local",
-		},
-	}
-
-	updated := false
-	found := false
-	for i := range deployment.Spec.Template.Spec.HostAliases {
-		alias := &deployment.Spec.Template.Spec.HostAliases[i]
-		if slices.Contains(alias.Hostnames, "api.datadoghq.local") {
-			found = true
-			if alias.IP != desiredAlias.IP || !sameStrings(alias.Hostnames, desiredAlias.Hostnames) {
-				*alias = desiredAlias
-				updated = true
-			}
-		}
-	}
-	if !found {
-		deployment.Spec.Template.Spec.HostAliases = append(deployment.Spec.Template.Spec.HostAliases, desiredAlias)
-		updated = true
-	}
-
-	if updated {
-		if deployment.Spec.Template.Annotations == nil {
-			deployment.Spec.Template.Annotations = map[string]string{}
-		}
-		deployment.Spec.Template.Annotations["hub.mydecisive.ai/validator-hostalias-ip"] = desiredAlias.IP
-		if err := r.Update(ctx, deployment); err != nil {
-			return false, err
-		}
-	}
-
-	return true, nil
-}
-
-func sameStrings(a, b []string) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for _, item := range a {
-		if !slices.Contains(b, item) {
-			return false
-		}
-	}
-	return true
 }
