@@ -440,7 +440,7 @@ func (c MdaiReplayAdapter) finalize(ctx context.Context) (ObjectState, error) {
 	if !c.replayCR.Spec.IgnoreSendingQueue {
 		serviceName := c.getReplayerResourceName("service")
 		metricsUrl := c.metricsURLBuilder(serviceName, c.replayCR.Namespace)
-		sendingQueueSize, err := c.getMetricValue(metricsUrl, "otelcol_exporter_queue_size")
+		sendingQueueSize, err := c.getMetricValue(ctx, metricsUrl, "otelcol_exporter_queue_size")
 		if err != nil {
 			c.logger.Error(err, "failed to get otelcol_exporter_queue_size for replay, cannot finalize", "replayName", c.replayCR.Name)
 			return ObjectUnchanged, err
@@ -500,8 +500,8 @@ func (c MdaiReplayAdapter) deleteFinalizer(ctx context.Context, object client.Ob
 	return nil
 }
 
-func (c MdaiReplayAdapter) getMetricValue(metricsUrl, metricName string) (float64, error) {
-	request, err := http.NewRequest(http.MethodGet, metricsUrl, http.NoBody)
+func (c MdaiReplayAdapter) getMetricValue(ctx context.Context, metricsUrl, metricName string) (float64, error) {
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, metricsUrl, http.NoBody)
 	if err != nil {
 		c.logger.Error(err, "Replay finalizer failed to create request for collector metrics", "url", metricsUrl)
 		return 0, err

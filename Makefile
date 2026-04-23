@@ -103,6 +103,14 @@ lint-fix: golangci-lint ## Run golangci-lint linter and perform fixes
 lint-config: golangci-lint ## Verify golangci-lint linter configuration
 	$(GOLANGCI_LINT) config verify
 
+.PHONY: fix
+fix:
+	go fix ./...
+
+.PHONY: fix-diff
+fix-diff:
+	go fix -diff ./...
+
 .PHONY: tidy
 tidy:
 	@$(GO) mod tidy

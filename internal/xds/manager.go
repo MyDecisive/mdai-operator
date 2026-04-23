@@ -78,9 +78,9 @@ func (m *Manager) UpdateSnapshot(ctx context.Context, nodeID string, collectors 
 			ExplicitHttpConfig: &upstreamhttp.HttpProtocolOptions_ExplicitHttpConfig{
 				ProtocolConfig: &upstreamhttp.HttpProtocolOptions_ExplicitHttpConfig_Http2ProtocolOptions{
 					Http2ProtocolOptions: &core.Http2ProtocolOptions{
-						MaxConcurrentStreams:         wrapperspb.UInt32(50),                    //nolint:mnd
-						InitialStreamWindowSize:     wrapperspb.UInt32(1024 * 1024),            //nolint:mnd
-						InitialConnectionWindowSize: wrapperspb.UInt32(4 * 1024 * 1024),        //nolint:mnd
+						MaxConcurrentStreams:        wrapperspb.UInt32(50),              //nolint:mnd
+						InitialStreamWindowSize:     wrapperspb.UInt32(1024 * 1024),     //nolint:mnd
+						InitialConnectionWindowSize: wrapperspb.UInt32(4 * 1024 * 1024), //nolint:mnd
 						ConnectionKeepalive: &core.KeepaliveSettings{
 							Interval: durationpb.New(30 * time.Second), //nolint:mnd
 							Timeout:  durationpb.New(5 * time.Second),  //nolint:mnd
@@ -136,7 +136,7 @@ func (m *Manager) UpdateSnapshot(ctx context.Context, nodeID string, collectors 
 		for _, cp := range cpList {
 			// Cluster name is based on the service it forwards to
 			clusterName := fmt.Sprintf("%s_%d", cp.name, cp.port)
-			appendCluster(&clusters, seenClusters, newDNSCluster(clusterName, cp.svc, cp.port, protocolOptionsForCollectorPort(cp, upstreamProtocolOptionsAny), false))
+			appendCluster(&clusters, seenClusters, newDNSCluster(clusterName, cp.svc, cp.port, protocolOptionsForCollectorPort(cp, upstreamProtocolOptionsAny)))
 
 			mirrorTargets := validationTargetsForCollectorPort(log, cp, port, validations)
 			for _, target := range mirrorTargets {
@@ -151,7 +151,7 @@ func (m *Manager) UpdateSnapshot(ctx context.Context, nodeID string, collectors 
 				)
 			}
 			for _, target := range mirrorTargets {
-				appendCluster(&clusters, seenClusters, newDNSCluster(target.clusterName, target.address, target.port, protocolOptionsForCollectorPort(cp, upstreamProtocolOptionsAny), true))
+				appendCluster(&clusters, seenClusters, newMirrorDNSCluster(target.clusterName, target.address, target.port, protocolOptionsForCollectorPort(cp, upstreamProtocolOptionsAny)))
 			}
 
 			vHost := &route.VirtualHost{
@@ -191,11 +191,11 @@ func (m *Manager) UpdateSnapshot(ctx context.Context, nodeID string, collectors 
 		}
 
 		manager := &hcm.HttpConnectionManager{
-			StatPrefix:             fmt.Sprintf("ingress_%d", port),
-			GenerateRequestId:      wrapperspb.Bool(true),
-			StreamIdleTimeout:      durationpb.New(10 * time.Minute),  //nolint:mnd
-			RequestTimeout:         durationpb.New(30 * time.Second),  //nolint:mnd
-			RequestHeadersTimeout:  durationpb.New(10 * time.Second),  //nolint:mnd
+			StatPrefix:            fmt.Sprintf("ingress_%d", port),
+			GenerateRequestId:     wrapperspb.Bool(true),
+			StreamIdleTimeout:     durationpb.New(10 * time.Minute), //nolint:mnd
+			RequestTimeout:        durationpb.New(30 * time.Second), //nolint:mnd
+			RequestHeadersTimeout: durationpb.New(10 * time.Second), //nolint:mnd
 			RouteSpecifier: &hcm.HttpConnectionManager_RouteConfig{
 				RouteConfig: &route.RouteConfiguration{
 					Name:         fmt.Sprintf("route_%d", port),
@@ -298,11 +298,11 @@ func buildRoute(clusterName string, mirrorTargets []routeTarget) *route.Route {
 				IdleTimeout: durationpb.New(10 * time.Minute), //nolint:mnd
 				RetryPolicy: &route.RetryPolicy{
 					RetryOn:       "connect-failure,refused-stream,reset",
-					NumRetries:    wrapperspb.UInt32(1), //nolint:mnd
+					NumRetries:    wrapperspb.UInt32(1),
 					PerTryTimeout: durationpb.New(5 * time.Second), //nolint:mnd
 					RetryBackOff: &route.RetryPolicy_RetryBackOff{
 						BaseInterval: durationpb.New(100 * time.Millisecond), //nolint:mnd
-						MaxInterval:  durationpb.New(1 * time.Second),        //nolint:mnd
+						MaxInterval:  durationpb.New(1 * time.Second),
 					},
 				},
 				RequestMirrorPolicies: requestMirrorPolicies,
@@ -315,29 +315,29 @@ func buildRoute(clusterName string, mirrorTargets []routeTarget) *route.Route {
 // isMirror should be true for validation mirror targets (shadow collector, fidelity validator)
 // to apply tighter circuit breaker limits and shorter connect timeouts, preventing mirror
 // traffic from competing with primary collector traffic.
-func newDNSCluster(name, address string, port uint32, upstreamProtocolOptionsAny *anypb.Any, isMirror bool) *cluster.Cluster {
+func newMirrorDNSCluster(name, address string, port uint32, upstreamProtocolOptionsAny *anypb.Any) *cluster.Cluster {
 	isGRPC := upstreamProtocolOptionsAny != nil
 
-	connectTimeout := 5 * time.Second
+	connectTimeout := 5 * time.Second //nolint:mnd
+	if isGRPC {
+		connectTimeout = 10 * time.Second //nolint:mnd
+	}
+
+	return buildDNSCluster(name, address, port, upstreamProtocolOptionsAny, connectTimeout, 10*1024*1024, 50, 200) //nolint:mnd
+}
+
+func newDNSCluster(name, address string, port uint32, upstreamProtocolOptionsAny *anypb.Any) *cluster.Cluster {
+	isGRPC := upstreamProtocolOptionsAny != nil
+
+	connectTimeout := 5 * time.Second //nolint:mnd
 	if isGRPC {
 		connectTimeout = 15 * time.Second //nolint:mnd
-		if isMirror {
-			connectTimeout = 10 * time.Second //nolint:mnd
-		}
 	}
 
-	bufferLimitBytes := uint32(32 * 1024 * 1024) //nolint:mnd
-	if isMirror {
-		bufferLimitBytes = 10 * 1024 * 1024 //nolint:mnd
-	}
+	return buildDNSCluster(name, address, port, upstreamProtocolOptionsAny, connectTimeout, 32*1024*1024, 100, 500) //nolint:mnd
+}
 
-	maxConns := uint32(100) //nolint:mnd
-	maxReqs := uint32(500)  //nolint:mnd
-	if isMirror {
-		maxConns = 50  //nolint:mnd
-		maxReqs = 200  //nolint:mnd
-	}
-
+func buildDNSCluster(name, address string, port uint32, upstreamProtocolOptionsAny *anypb.Any, connectTimeout time.Duration, bufferLimitBytes, maxConns, maxReqs uint32) *cluster.Cluster {
 	c := &cluster.Cluster{
 		Name:           name,
 		ConnectTimeout: durationpb.New(connectTimeout),
@@ -356,13 +356,13 @@ func newDNSCluster(name, address string, port uint32, upstreamProtocolOptionsAny
 			}},
 		},
 		OutlierDetection: &cluster.OutlierDetection{
-			Consecutive_5Xx:                wrapperspb.UInt32(5),                    //nolint:mnd
-			ConsecutiveGatewayFailure:      wrapperspb.UInt32(5),                    //nolint:mnd
-			Interval:                       durationpb.New(10 * time.Second),        //nolint:mnd
-			BaseEjectionTime:               durationpb.New(30 * time.Second),        //nolint:mnd
-			MaxEjectionPercent:             wrapperspb.UInt32(50),                   //nolint:mnd
+			Consecutive_5Xx:                wrapperspb.UInt32(5),             //nolint:mnd
+			ConsecutiveGatewayFailure:      wrapperspb.UInt32(5),             //nolint:mnd
+			Interval:                       durationpb.New(10 * time.Second), //nolint:mnd
+			BaseEjectionTime:               durationpb.New(30 * time.Second), //nolint:mnd
+			MaxEjectionPercent:             wrapperspb.UInt32(50),            //nolint:mnd
 			SplitExternalLocalOriginErrors: true,
-			ConsecutiveLocalOriginFailure:  wrapperspb.UInt32(5),                    //nolint:mnd
+			ConsecutiveLocalOriginFailure:  wrapperspb.UInt32(5), //nolint:mnd
 		},
 		LoadAssignment: &endpoint.ClusterLoadAssignment{
 			ClusterName: name,
