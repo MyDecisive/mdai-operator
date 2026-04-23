@@ -2,6 +2,7 @@ package controller
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -180,11 +181,43 @@ func TestReconcileValidatorLifecycleUsesEmbeddedDefaultsWhenValidatorConfigEmpty
 
 	cfg := &corev1.ConfigMap{}
 	assertObjectExists(t, c, cfg, types.NamespacedName{Name: "sample-fidelity-validator-config", Namespace: "mdai"})
-	assert.Contains(t, cfg.Data["rules.yaml"], "signals:")
-	assert.Contains(t, cfg.Data["rules.yaml"], "required_attributes:")
+	rulesYAML := cfg.Data["rules.yaml"]
+	traceRulesSection := rulesYAML
+	tracesIdx := strings.Index(traceRulesSection, "\n  traces:")
+	require.NotEqual(t, -1, tracesIdx)
+	metricsRulesSection := traceRulesSection[:tracesIdx]
+	logsIdx := strings.Index(traceRulesSection, "\n  logs:")
+	require.NotEqual(t, -1, logsIdx)
+	traceRulesSection = traceRulesSection[tracesIdx:logsIdx]
+	assert.Contains(t, rulesYAML, "signals:")
+	assert.Contains(t, rulesYAML, "required_attributes:")
+	assert.Contains(t, metricsRulesSection, "- metric_name")
+	assert.Contains(t, metricsRulesSection, "- point_timestamp")
+	assert.Contains(t, metricsRulesSection, "- point_value")
+	assert.Contains(t, metricsRulesSection, "- service")
+	assert.Contains(t, metricsRulesSection, "- env")
+	assert.NotContains(t, metricsRulesSection, "\n      - host\n")
+	assert.NotContains(t, metricsRulesSection, "\n      - metric\n")
+	assert.NotContains(t, metricsRulesSection, "\n      - tags\n")
+	assert.NotContains(t, metricsRulesSection, "\n      - type\n")
+	assert.Contains(t, traceRulesSection, "- env")
+	assert.Contains(t, traceRulesSection, "- operation_name")
+	assert.Contains(t, traceRulesSection, "- resource_name")
+	assert.NotContains(t, traceRulesSection, "- status")
+	assert.NotContains(t, traceRulesSection, "- ingestion_reason")
+	assert.NotContains(t, traceRulesSection, "span_count")
 	assert.Contains(t, cfg.Data["field-mapping.yaml"], "signals:")
 	assert.Contains(t, cfg.Data["field-mapping.yaml"], "correlation_id:")
 	assert.Contains(t, cfg.Data["field-mapping.yaml"], "\"contains:.tags[|tag:correlation_id\"")
+	assert.Contains(t, cfg.Data["field-mapping.yaml"], "operation_name:")
+	assert.Contains(t, cfg.Data["field-mapping.yaml"], "resource_name:")
+	assert.Contains(t, cfg.Data["field-mapping.yaml"], "ingestion_reason:")
+	assert.Contains(t, cfg.Data["field-mapping.yaml"], "exporters:")
+	assert.Contains(t, cfg.Data["field-mapping.yaml"], "datadog:")
+	assert.Contains(t, cfg.Data["field-mapping.yaml"], "operation_name:")
+	assert.Contains(t, cfg.Data["field-mapping.yaml"], "\"suffix:.name\"")
+	assert.Contains(t, cfg.Data["field-mapping.yaml"], "\"suffix:.resource\"")
+	assert.Contains(t, cfg.Data["field-mapping.yaml"], "\"suffix:.meta.dd.span.Resource\"")
 }
 
 func TestReconcileCreatesShadowCollectorLabels(t *testing.T) {
