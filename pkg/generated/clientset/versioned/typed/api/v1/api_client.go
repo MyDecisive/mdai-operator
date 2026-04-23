@@ -18,6 +18,7 @@ type HubV1Interface interface {
 	MdaiIngressesGetter
 	MdaiObserversGetter
 	MdaiReplaysGetter
+	TelemetryValidationsGetter
 }
 
 // HubV1Client is used to interact with features provided by the hub.mydecisive.ai group.
@@ -47,6 +48,10 @@ func (c *HubV1Client) MdaiObservers(namespace string) MdaiObserverInterface {
 
 func (c *HubV1Client) MdaiReplays(namespace string) MdaiReplayInterface {
 	return newMdaiReplays(c, namespace)
+}
+
+func (c *HubV1Client) TelemetryValidations(namespace string) TelemetryValidationInterface {
+	return newTelemetryValidations(c, namespace)
 }
 
 // NewForConfig creates a new HubV1Client for the given config.

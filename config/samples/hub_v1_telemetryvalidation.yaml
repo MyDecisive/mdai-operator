@@ -1,0 +1,18 @@
+apiVersion: hub.mydecisive.ai/v1
+kind: TelemetryValidation
+metadata:
+  name: sample-telemetryvalidation
+spec:
+  enabled: true
+  collectorRef:
+    name: gateway
+  signals:
+    - metrics
+    - logs
+    - traces
+  validator:
+    endpoint: http://mdai-fidelity-validator.mdai.svc.cluster.local:443
+  shadowCollector:
+    enabled: true
+  ingressCapture:
+    enabled: true

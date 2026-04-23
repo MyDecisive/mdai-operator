@@ -1,0 +1,25 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "deployment.fullname" . }}-telemetryvalidation-editor-role
+  labels:
+  {{- include "deployment.labels" . | nindent 4 }}
+rules:
+- apiGroups:
+  - hub.mydecisive.ai
+  resources:
+  - telemetryvalidations
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - hub.mydecisive.ai
+  resources:
+  - telemetryvalidations/status
+  verbs:
+  - get

@@ -2,7 +2,7 @@
 apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
-  name: mdaidals.hub.mydecisive.ai
+  name: telemetryvalidations.hub.mydecisive.ai
   annotations:
     controller-gen.kubebuilder.io/version: v0.19.0
   labels:
@@ -10,16 +10,15 @@ metadata:
 spec:
   group: hub.mydecisive.ai
   names:
-    kind: MdaiDal
-    listKind: MdaiDalList
-    plural: mdaidals
-    singular: mdaidal
+    kind: TelemetryValidation
+    listKind: TelemetryValidationList
+    plural: telemetryvalidations
+    singular: telemetryvalidation
   scope: Namespaced
   versions:
   - name: v1
     schema:
       openAPIV3Schema:
-        description: MdaiDal is the Schema for the mdaidals API
         properties:
           apiVersion:
             description: |-
@@ -39,105 +38,63 @@ spec:
           metadata:
             type: object
           spec:
-            description: spec defines the desired state of MdaiDal
             properties:
-              aws:
+              collectorRef:
                 properties:
-                  credentials:
-                    properties:
-                      accessKeyField:
-                        default: AWS_ACCESS_KEY_ID
-                        description: |-
-                          AccessKeyField is the key of the AWS credentials secret
-                          that holds the value for `AWS_ACCESS_KEY_ID`
-                        minLength: 1
-                        type: string
-                      secretKeyField:
-                        default: AWS_SECRET_ACCESS_KEY
-                        description: |-
-                          SecretKeyField is the key of the AWS credentials secret
-                          that holds the value for `AWS_SECRET_ACCESS_KEY`
-                        minLength: 1
-                        type: string
-                      secretName:
-                        default: aws-credentials
-                        description: |-
-                          SecretName is the name of the kubernetes secret that holds
-                          the AWS credentials
-                        minLength: 1
-                        type: string
-                    type: object
-                  region:
-                    description: Region is the AWS Region
-                    pattern: ^[a-z]{2}(-[a-z]+)+-\d+$
+                  name:
+                    minLength: 1
                     type: string
                 required:
-                - region
+                - name
                 type: object
-              granularity:
-                description: Granularity is how often to partition the data
-                enum:
-                - weekly
-                - daily
-                - hourly
-                - minutely
-                type: string
-              imageSpec:
-                default:
-                  pullPolicy: IfNotPresent
-                  repository: public.ecr.aws/decisiveai/mdai-dal
-                  tag: 0.0.1
-                properties:
-                  pullPolicy:
-                    default: IfNotPresent
-                    description: PullPolicy, e.g. IfNotPresent, Always, Never
-                    enum:
-                    - Always
-                    - IfNotPresent
-                    - Never
-                    type: string
-                  repository:
-                    default: public.ecr.aws/decisiveai/mdai-dal
-                    description: Repository, e.g. public.ecr.aws/decisiveai/mdai-dal
-                    type: string
-                  tag:
-                    default: 0.0.1
-                    description: Tag, e.g. v0.0.1
-                    type: string
-                type: object
-              marshaler:
-                default: json
-                description: Marshaler of payload data
-                type: string
-              s3:
-                properties:
-                  bucket:
-                    description: Bucket is the name of the S3 bucket to write to
-                    maxLength: 63
-                    minLength: 3
-                    pattern: ^[a-z0-9][a-z0-9.-]*[a-z0-9]$
-                    type: string
-                  prefix:
-                    description: Prefix is the S3 bucket prefix (path)
-                    pattern: ^[A-Za-z0-9._/\-]*$
-                    type: string
-                required:
-                - bucket
-                type: object
-              usePayloadTs:
-                default: false
-                description: |-
-                  UsePayloadTS determines whether to partition by earliest payload
-                  timestamp instead of ingest time
+              enabled:
+                default: true
                 type: boolean
+              ingressCapture:
+                properties:
+                  enabled:
+                    default: true
+                    type: boolean
+                type: object
+              shadowCollector:
+                properties:
+                  enabled:
+                    default: true
+                    type: boolean
+                type: object
+              signals:
+                items:
+                  enum:
+                  - metrics
+                  - logs
+                  - traces
+                  type: string
+                type: array
+              validator:
+                properties:
+                  endpoint:
+                    description: |-
+                      Endpoint is the validator ingress endpoint used for raw OTLP capture and
+                      as the basis for shadow Datadog exporter endpoint rewriting.
+                    minLength: 1
+                    type: string
+                required:
+                - endpoint
+                type: object
             required:
-            - aws
-            - granularity
-            - s3
+            - collectorRef
+            - validator
             type: object
           status:
-            description: status defines the observed state of MdaiDal
             properties:
+              activeSignals:
+                items:
+                  enum:
+                  - metrics
+                  - logs
+                  - traces
+                  type: string
+                type: array
               conditions:
                 items:
                   description: Condition contains details for one aspect of the current
@@ -194,35 +151,14 @@ spec:
                   - type
                   type: object
                 type: array
-                x-kubernetes-list-map-keys:
-                - type
-                x-kubernetes-list-type: map
-              endpoint:
-                description: Endpoint is the in-cluster address for the DAL service.
-                type: string
-              lastSyncedTime:
-                description: LastSyncedTime is the last time the controller successfully
-                  reconciled.
-                format: date-time
-                type: string
               observedGeneration:
-                description: ObservedGeneration is the last generation the controller
-                  processed.
                 format: int64
                 type: integer
-              readyReplicas:
-                description: ReadyReplicas is the number of ready replicas for the DAL
-                  deployment.
-                format: int32
-                type: integer
-              replicas:
-                description: Replicas is the desired number of replicas for the DAL
-                  deployment.
-                format: int32
-                type: integer
+              shadowCollectorName:
+                type: string
+              shadowServiceName:
+                type: string
             type: object
-        required:
-        - spec
         type: object
     served: true
     storage: true

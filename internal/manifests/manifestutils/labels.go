@@ -40,8 +40,8 @@ func Labels(instance metav1.ObjectMeta, name string, image string, filterLabels 
 
 	version := strings.Split(image, ":")
 	for _, v := range version {
-		if strings.HasSuffix(v, "@sha256") {
-			versionLabel = strings.TrimSuffix(v, "@sha256")
+		if before, ok := strings.CutSuffix(v, "@sha256"); ok {
+			versionLabel = before
 		}
 	}
 	switch lenVersion := len(version); lenVersion {

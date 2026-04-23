@@ -13,3 +13,5 @@ type MdaiIngressExpansion interface{}
 type MdaiObserverExpansion interface{}
 
 type MdaiReplayExpansion interface{}
+
+type TelemetryValidationExpansion interface{}

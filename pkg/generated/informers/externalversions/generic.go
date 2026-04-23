@@ -49,6 +49,8 @@ func (f *sharedInformerFactory) ForResource(resource schema.GroupVersionResource
 		return &genericInformer{resource: resource.GroupResource(), informer: f.Hub().V1().MdaiObservers().Informer()}, nil
 	case v1.SchemeGroupVersion.WithResource("mdaireplays"):
 		return &genericInformer{resource: resource.GroupResource(), informer: f.Hub().V1().MdaiReplays().Informer()}, nil
+	case v1.SchemeGroupVersion.WithResource("telemetryvalidations"):
+		return &genericInformer{resource: resource.GroupResource(), informer: f.Hub().V1().TelemetryValidations().Informer()}, nil
 
 	}
 

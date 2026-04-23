@@ -94,6 +94,7 @@ rules:
   - mdaiingresses
   - mdaiobservers
   - mdaireplays
+  - telemetryvalidations
   verbs:
   - create
   - delete
@@ -111,6 +112,7 @@ rules:
   - mdaiingresses/finalizers
   - mdaiobservers/finalizers
   - mdaireplays/finalizers
+  - telemetryvalidations/finalizers
   verbs:
   - update
 - apiGroups:
@@ -122,6 +124,7 @@ rules:
   - mdaiingresses/status
   - mdaiobservers/status
   - mdaireplays/status
+  - telemetryvalidations/status
   verbs:
   - get
   - patch

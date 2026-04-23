@@ -5,6 +5,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"testing"
 
 	"github.com/mydecisive/mdai-operator/internal/builder"
@@ -427,13 +428,7 @@ func TestAugmentCollectorConfigPerSpec(t *testing.T) {
 				logsReplay := pipelines.MustMap("logs/replay")
 				exportersList := logsReplay["exporters"].([]string) // nolint:forcetypeassert
 
-				found := false
-				for _, exp := range exportersList {
-					if exp == "otlphttp" { // nolint:goconst
-						found = true
-						break
-					}
-				}
+				found := slices.Contains(exportersList, "otlphttp")
 				assert.True(t, found, "otlphttp should be in exporters list")
 			},
 		},
@@ -479,13 +474,7 @@ func TestAugmentCollectorConfigPerSpec(t *testing.T) {
 				tracesPipeline := pipelines.MustMap("traces/replay")
 				exportersList := tracesPipeline["exporters"].([]string) // nolint:forcetypeassert
 
-				found := false
-				for _, exp := range exportersList {
-					if exp == "otlphttp" { // nolint:goconst
-						found = true
-						break
-					}
-				}
+				found := slices.Contains(exportersList, "otlphttp")
 				assert.True(t, found, "otlphttp should be in exporters list")
 			},
 		},
@@ -531,13 +520,7 @@ func TestAugmentCollectorConfigPerSpec(t *testing.T) {
 				metricsPipeline := pipelines.MustMap("metrics/replay")
 				exportersList := metricsPipeline["exporters"].([]string) // nolint:forcetypeassert
 
-				found := false
-				for _, exp := range exportersList {
-					if exp == "otlphttp" { // nolint:goconst
-						found = true
-						break
-					}
-				}
+				found := slices.Contains(exportersList, "otlphttp")
 				assert.True(t, found, "otlphttp should be in exporters list")
 			},
 		},

@@ -1,25 +1,22 @@
-{{- if .Values.crds.enabled }}
+---
 apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
-  name: mdaireplays.hub.mydecisive.ai
   annotations:
     controller-gen.kubebuilder.io/version: v0.19.0
-  labels:
-  {{- include "deployment.labels" . | nindent 4 }}
+  name: telemetryvalidations.hub.mydecisive.ai
 spec:
   group: hub.mydecisive.ai
   names:
-    kind: MdaiReplay
-    listKind: MdaiReplayList
-    plural: mdaireplays
-    singular: mdaireplay
+    kind: TelemetryValidation
+    listKind: TelemetryValidationList
+    plural: telemetryvalidations
+    singular: telemetryvalidation
   scope: Namespaced
   versions:
   - name: v1
     schema:
       openAPIV3Schema:
-        description: MdaiReplay is the Schema for the mdaireplays API.
         properties:
           apiVersion:
             description: |-
@@ -39,86 +36,64 @@ spec:
           metadata:
             type: object
           spec:
-            description: MdaiReplaySpec defines the desired state of MdaiReplay.
             properties:
-              destination:
+              collectorRef:
                 properties:
-                  otlpHttp:
-                    properties:
-                      endpoint:
-                        type: string
-                    required:
-                    - endpoint
-                    type: object
-                type: object
-              endTime:
-                type: string
-              hubName:
-                type: string
-              ignoreSendingQueue:
-                default: false
-                description: 'IgnoreSendingQueue: Bypass checking the OTEL sending queue
-                  metric when finalizing the replay resource'
-                type: boolean
-              opampEndpoint:
-                type: string
-              resource:
-                properties:
-                  image:
+                  name:
+                    minLength: 1
                     type: string
+                required:
+                - name
                 type: object
-              source:
+              enabled:
+                default: true
+                type: boolean
+              ingressCapture:
                 properties:
-                  aws:
-                    properties:
-                      awsAccessKeySecret:
-                        type: string
-                    type: object
-                  s3:
-                    properties:
-                      filePrefix:
-                        type: string
-                      s3Bucket:
-                        type: string
-                      s3Partition:
-                        enum:
-                        - minute
-                        - hour
-                        type: string
-                      s3Path:
-                        type: string
-                      s3Region:
-                        type: string
-                    required:
-                    - filePrefix
-                    - s3Bucket
-                    - s3Partition
-                    - s3Path
-                    - s3Region
-                    type: object
+                  enabled:
+                    default: true
+                    type: boolean
                 type: object
-              startTime:
-                type: string
-              statusVariableRef:
-                description: |-
-                  StatusVariableRef a variable that will be updated with the result of this replay upon success or failure.
-                  Should be referenced in a When VariableUpdated rule so that a CleanUpReplayAction can be triggered
-                type: string
-              telemetryType:
-                enum:
-                - logs
-                - metrics
-                - traces
-                type: string
+              shadowCollector:
+                properties:
+                  enabled:
+                    default: true
+                    type: boolean
+                type: object
+              signals:
+                items:
+                  enum:
+                  - metrics
+                  - logs
+                  - traces
+                  type: string
+                type: array
+              validator:
+                properties:
+                  endpoint:
+                    description: |-
+                      Endpoint is the validator ingress endpoint used for raw OTLP capture and
+                      as the basis for shadow Datadog exporter endpoint rewriting.
+                    minLength: 1
+                    type: string
+                required:
+                - endpoint
+                type: object
             required:
-            - opampEndpoint
-            - statusVariableRef
+            - collectorRef
+            - validator
             type: object
           status:
-            description: MdaiReplayStatus defines the observed state of MdaiReplay.
             properties:
+              activeSignals:
+                items:
+                  enum:
+                  - metrics
+                  - logs
+                  - traces
+                  type: string
+                type: array
               conditions:
-                description: Conditions store the status conditions of the Replay instances
                 items:
                   description: Condition contains details for one aspect of the current
                     state of this API Resource.
@@ -174,11 +149,12 @@ spec:
                   - type
                   type: object
                 type: array
-              lastUpdatedTime:
-                description: |-
-                  Time when last Replay Configuration change was detected
-                  Right now it's updated on each reconcile, we have to skip when reconciliation detects no changes
-                format: date-time
+              observedGeneration:
+                format: int64
+                type: integer
+              shadowCollectorName:
+                type: string
+              shadowServiceName:
                 type: string
             type: object
         type: object
@@ -186,10 +162,3 @@ spec:
     storage: true
     subresources:
       status: {}
-status:
-  acceptedNames:
-    kind: ""
-    plural: ""
-  conditions: []
-  storedVersions: []
-{{- end }}

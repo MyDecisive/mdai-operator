@@ -273,10 +273,19 @@ func main() {
 	}
 
 	if err = (&controller.MdaiCollectorReconciler{
+		Client:   mgr.GetClient(),
+		Scheme:   mgr.GetScheme(),
+		Recorder: mgr.GetEventRecorderFor("mdaicollector-controller"),
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "MdaiCollector")
+		gracefullyShutdownWithCode(1)
+	}
+
+	if err = (&controller.TelemetryValidationReconciler{
 		Client: mgr.GetClient(),
 		Scheme: mgr.GetScheme(),
 	}).SetupWithManager(mgr); err != nil {
-		setupLog.Error(err, "unable to create controller", "controller", "MdaiCollector")
+		setupLog.Error(err, "unable to create controller", "controller", "TelemetryValidation")
 		gracefullyShutdownWithCode(1)
 	}
 
