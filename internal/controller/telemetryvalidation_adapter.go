@@ -64,11 +64,7 @@ func (*TelemetryValidationAdapter) ensureStatusSetToDone(context.Context) (Opera
 }
 
 func (c *TelemetryValidationAdapter) ensureSynchronized(ctx context.Context) (OperationResult, error) {
-	validatorName, validatorServiceName, resolvedValidatorEndpoint, err := c.reconciler.reconcileValidator(ctx, c.validation)
-	if err != nil {
-		return ContinueWithError(err)
-	}
-	validatorIngressPort, _, err := c.reconciler.resolveValidatorIngressPorts(ctx, c.validation)
+	validatorName, validatorServiceName, resolvedValidatorEndpoint, validatorIngressPort, err := c.reconciler.reconcileValidator(ctx, c.validation)
 	if err != nil {
 		return ContinueWithError(err)
 	}
@@ -76,10 +72,7 @@ func (c *TelemetryValidationAdapter) ensureSynchronized(ctx context.Context) (Op
 	c.validatorName = validatorName
 	c.validatorServiceName = validatorServiceName
 	c.resolvedValidatorEndpoint = resolvedValidatorEndpoint
-	c.validatorIngressPortStatus = 0
-	if c.validation.Spec.Enabled {
-		c.validatorIngressPortStatus = validatorIngressPort
-	}
+	c.validatorIngressPortStatus = validatorIngressPort
 
 	return c.reconciler.reconcileShadowCollector(
 		ctx,

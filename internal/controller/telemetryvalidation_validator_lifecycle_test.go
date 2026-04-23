@@ -78,7 +78,7 @@ func TestReconcileValidatorLifecycle(t *testing.T) {
 	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(tv, collector).Build()
 	r := &TelemetryValidationReconciler{Client: c, Scheme: scheme}
 
-	validatorName, validatorService, validatorEndpoint, err := r.reconcileValidator(context.Background(), tv)
+	validatorName, validatorService, validatorEndpoint, _, err := r.reconcileValidator(context.Background(), tv)
 	require.NoError(t, err)
 	assert.Equal(t, "sample-fidelity-validator", validatorName)
 	assert.Equal(t, "sample-fidelity-validator", validatorService)
@@ -121,7 +121,7 @@ func TestReconcileValidatorLifecycle(t *testing.T) {
 	assertDeploymentEnvVar(t, deploy, "MDAI_DATADOG_AGENT_INGEST_ADDR", ":18126")
 
 	tv.Spec.Enabled = false
-	validatorName, validatorService, validatorEndpoint, err = r.reconcileValidator(context.Background(), tv)
+	validatorName, validatorService, validatorEndpoint, _, err = r.reconcileValidator(context.Background(), tv)
 	require.NoError(t, err)
 	assert.Empty(t, validatorName)
 	assert.Empty(t, validatorService)
@@ -175,7 +175,7 @@ func TestReconcileValidatorLifecycleUsesEmbeddedDefaultsWhenValidatorConfigEmpty
 	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(tv, collector).Build()
 	r := &TelemetryValidationReconciler{Client: c, Scheme: scheme}
 
-	_, _, validatorEndpoint, err := r.reconcileValidator(context.Background(), tv)
+	_, _, validatorEndpoint, _, err := r.reconcileValidator(context.Background(), tv)
 	require.NoError(t, err)
 	assert.NotEmpty(t, validatorEndpoint)
 
