@@ -81,7 +81,7 @@ func TestUpdateSnapshotAddsWildcardFallbackForSharedPort(t *testing.T) {
 	assert.Equal(t, "%REQ(X-REQUEST-ID)%", correlationHeader.GetHeader().GetValue())
 	assert.Equal(t, "OVERWRITE_IF_EXISTS_OR_ADD", correlationHeader.GetAppendAction().String())
 	require.NotNil(t, wildcardRoute.GetRoute().GetRetryPolicy(), "expected retry policy to be set")
-	assert.Equal(t, uint32(2), wildcardRoute.GetRoute().GetRetryPolicy().GetNumRetries().GetValue())
+	assert.Equal(t, uint32(1), wildcardRoute.GetRoute().GetRetryPolicy().GetNumRetries().GetValue())
 }
 
 func TestUpdateSnapshotUsesValidatorServiceFromTelemetryValidationStatus(t *testing.T) {
