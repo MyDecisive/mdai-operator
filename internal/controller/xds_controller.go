@@ -26,12 +26,15 @@ import (
 	logger "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+
+	"github.com/mydecisive/mdai-operator/internal/xds"
 )
 
 const (
 	xdsProxyServiceNameEnv      = "XDS_PROXY_SERVICE_NAME"
 	xdsProxyServiceNamespaceEnv = "XDS_PROXY_SERVICE_NAMESPACE"
 	xdsProxyServiceSelectorEnv  = "XDS_PROXY_SERVICE_SELECTOR"
+	PodNamespaceEnv             = "POD_NAMESPACE"
 	xdsProxyMarkerKey           = "hub.mydecisive.ai/xds-proxy"
 	xdsRoleLabelKey             = "hub.mydecisive.ai/role"
 	connectionCollectorRole     = "connection-collector"
@@ -58,6 +61,7 @@ type XDSReconciler struct {
 	APIReader  client.Reader
 	Scheme     *runtime.Scheme
 	XDSManager XDSManager
+	Namespace  string // operator namespace; scopes marked-service/deployment discovery
 }
 
 // +kubebuilder:rbac:groups=opentelemetry.io,resources=opentelemetrycollectors,verbs=get;list;watch
@@ -130,12 +134,22 @@ func (r *XDSReconciler) SetupWithManager(mgr ctrl.Manager) error {
 
 func (r *XDSReconciler) reconcileProxyServicePorts(ctx context.Context, collectors []otelv1beta1.OpenTelemetryCollector) error {
 	desiredManagedPorts := managedServicePorts(discoveredCollectorPorts(collectors))
-	if len(desiredManagedPorts) == 0 {
-		return nil
-	}
-	service, err := r.getOrCreateProxyService(ctx, desiredManagedPorts)
-	if err != nil {
-		return err
+
+	var (
+		service *corev1.Service
+		err     error
+	)
+	if len(desiredManagedPorts) > 0 {
+		service, err = r.getOrCreateProxyService(ctx, desiredManagedPorts)
+		if err != nil {
+			return err
+		}
+	} else {
+		// No collectors: find an existing service to clean up stale managed ports,
+		// but do not create one.
+		if service, err = r.findExistingProxyService(ctx); err != nil || service == nil {
+			return err
+		}
 	}
 
 	updatedPorts := mergeServicePorts(service.Spec.Ports, desiredManagedPorts)
@@ -146,6 +160,30 @@ func (r *XDSReconciler) reconcileProxyServicePorts(ctx context.Context, collecto
 
 	service.Spec.Ports = updatedPorts
 	return r.Update(ctx, service)
+}
+
+// findExistingProxyService locates the proxy service using the same resolution order as
+// getOrCreateProxyService but never creates one. Returns (nil, nil) if none exists.
+func (r *XDSReconciler) findExistingProxyService(ctx context.Context) (*corev1.Service, error) {
+	serviceName := strings.TrimSpace(os.Getenv(xdsProxyServiceNameEnv))
+	serviceNamespace := strings.TrimSpace(os.Getenv(xdsProxyServiceNamespaceEnv))
+	if serviceName != "" && serviceNamespace != "" {
+		service := &corev1.Service{}
+		if err := r.reader().Get(ctx, types.NamespacedName{Name: serviceName, Namespace: serviceNamespace}, service); err == nil {
+			return service, nil
+		} else if !apierrors.IsNotFound(err) {
+			return nil, err
+		}
+		return nil, nil
+	}
+
+	if service, err := r.getMarkedProxyService(ctx); err == nil {
+		return service, nil
+	} else if !errors.Is(err, errMarkedProxyServiceMissing) {
+		return nil, err
+	}
+
+	return nil, nil
 }
 
 func (r *XDSReconciler) getOrCreateProxyService(ctx context.Context, desiredManagedPorts []corev1.ServicePort) (*corev1.Service, error) {
@@ -213,15 +251,17 @@ func (r *XDSReconciler) getProxyServiceByEnv(ctx context.Context) (*corev1.Servi
 
 func (r *XDSReconciler) getMarkedProxyService(ctx context.Context) (*corev1.Service, error) {
 	var services corev1.ServiceList
-	if err := r.reader().List(ctx, &services); err != nil {
+	listOpts := []client.ListOption{client.MatchingLabels{xdsProxyMarkerKey: "true"}}
+	if r.Namespace != "" {
+		listOpts = append(listOpts, client.InNamespace(r.Namespace))
+	}
+	if err := r.reader().List(ctx, &services, listOpts...); err != nil {
 		return nil, err
 	}
 
 	var matches []corev1.Service
 	for _, service := range services.Items {
-		if service.Labels[xdsProxyMarkerKey] == "true" {
-			matches = append(matches, service)
-		}
+		matches = append(matches, service)
 	}
 
 	switch len(matches) {
@@ -237,15 +277,17 @@ func (r *XDSReconciler) getMarkedProxyService(ctx context.Context) (*corev1.Serv
 
 func (r *XDSReconciler) createProxyServiceFromMarkedDeployment(ctx context.Context, desiredManagedPorts []corev1.ServicePort) (*corev1.Service, error) {
 	var deployments appsv1.DeploymentList
-	if err := r.reader().List(ctx, &deployments); err != nil {
+	listOpts := []client.ListOption{client.MatchingLabels{xdsProxyMarkerKey: "true"}}
+	if r.Namespace != "" {
+		listOpts = append(listOpts, client.InNamespace(r.Namespace))
+	}
+	if err := r.reader().List(ctx, &deployments, listOpts...); err != nil {
 		return nil, err
 	}
 
 	var matches []appsv1.Deployment
 	for _, deployment := range deployments.Items {
-		if deployment.Labels[xdsProxyMarkerKey] == "true" {
-			matches = append(matches, deployment)
-		}
+		matches = append(matches, deployment)
 	}
 
 	switch len(matches) {
@@ -335,7 +377,7 @@ func parseLabelSelector(raw string) map[string]string {
 func discoveredCollectorPorts(collectors []otelv1beta1.OpenTelemetryCollector) []uint32 {
 	seen := make(map[uint32]struct{})
 
-	for _, collector := range eligibleCollectorsForXDS(collectors) {
+	for _, collector := range collectors {
 		ports := extractPortsFromConfigForXDS(collector.Spec.Config)
 		if len(ports) == 0 {
 			ports = []uint32{defaultOTLPGRPCPort, defaultOTLPHTTPPort}
@@ -413,16 +455,6 @@ func servicePortsEqual(a, b []corev1.ServicePort) bool {
 	return true
 }
 
-func isShadowCollectorForXDS(c otelv1beta1.OpenTelemetryCollector) bool {
-	if c.Labels["hub.mydecisive.ai/shadow"] == "true" {
-		return true
-	}
-	if c.Annotations["hub.mydecisive.ai/shadow"] == "true" {
-		return true
-	}
-	return strings.HasSuffix(c.Name, "-shadow")
-}
-
 func isWatchedCollectorObjectForXDS(obj client.Object) bool {
 	if obj.GetLabels()[xdsRoleLabelKey] != connectionCollectorRole {
 		return false
@@ -442,7 +474,7 @@ func eligibleCollectorsForXDS(collectors []otelv1beta1.OpenTelemetryCollector) [
 		if collector.Labels[xdsRoleLabelKey] != connectionCollectorRole {
 			continue
 		}
-		if isShadowCollectorForXDS(collector) {
+		if xds.IsShadowCollector(collector) {
 			continue
 		}
 		filtered = append(filtered, collector)
@@ -461,7 +493,7 @@ func extractPortsFromConfigForXDS(config otelv1beta1.Config) []uint32 {
 		}
 
 		if receiverEndpoint, ok := receiverMap["endpoint"].(string); ok {
-			if port := extractPortForXDS(receiverEndpoint); port != 0 {
+			if port := extractPort(receiverEndpoint); port != 0 {
 				ports = append(ports, port)
 			}
 		}
@@ -473,7 +505,7 @@ func extractPortsFromConfigForXDS(config otelv1beta1.Config) []uint32 {
 					continue
 				}
 				if protocolEndpoint, ok := protocolMap["endpoint"].(string); ok {
-					if port := extractPortForXDS(protocolEndpoint); port != 0 {
+					if port := extractPort(protocolEndpoint); port != 0 {
 						ports = append(ports, port)
 					}
 				}
@@ -482,18 +514,6 @@ func extractPortsFromConfigForXDS(config otelv1beta1.Config) []uint32 {
 	}
 
 	return ports
-}
-
-func extractPortForXDS(addr string) uint32 {
-	var port uint32
-	_, _ = fmt.Sscanf(addr, "0.0.0.0:%d", &port)
-	if port == 0 {
-		_, _ = fmt.Sscanf(addr, ":%d", &port)
-	}
-	if port == 0 {
-		_, _ = fmt.Sscanf(addr, "%d", &port)
-	}
-	return port
 }
 
 func (r *XDSReconciler) collectorsWithReadyEndpoints(ctx context.Context, collectors []otelv1beta1.OpenTelemetryCollector) ([]otelv1beta1.OpenTelemetryCollector, error) {

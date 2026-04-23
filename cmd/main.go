@@ -297,6 +297,7 @@ func main() {
 		APIReader:  mgr.GetAPIReader(),
 		Scheme:     mgr.GetScheme(),
 		XDSManager: xdsManager,
+		Namespace:  os.Getenv(controller.PodNamespaceEnv),
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create xDS controller", "controller", "XDS")
 		gracefullyShutdownWithCode(1)
