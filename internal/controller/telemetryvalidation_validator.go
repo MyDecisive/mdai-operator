@@ -25,12 +25,12 @@ import (
 func (r *TelemetryValidationReconciler) reconcileValidator(
 	ctx context.Context,
 	validation *hubv1.TelemetryValidation,
-) (string, string, string, error) {
+) (string, string, string, int32, error) {
 	if !validation.Spec.Enabled {
 		if err := r.deleteManagedValidatorResources(ctx, validation); err != nil {
-			return "", "", "", err
+			return "", "", "", 0, err
 		}
-		return "", "", "", nil
+		return "", "", "", 0, nil
 	}
 
 	validatorName := validatorNameForTV(validation.Name)
@@ -39,7 +39,7 @@ func (r *TelemetryValidationReconciler) reconcileValidator(
 	validatorPort := validatorPort(validation.Spec.Validator.Port)
 	validatorIngressPort, validatorIngressPorts, err := r.resolveValidatorIngressPorts(ctx, validation)
 	if err != nil {
-		return "", "", "", err
+		return "", "", "", 0, err
 	}
 	validatorRulesYAML, validatorFieldMappingYAML := resolveValidatorConfigYAMLs(validation)
 	validatorReplicas := validatorReplicas(validation.Spec.Validator.Replicas)
@@ -67,7 +67,7 @@ func (r *TelemetryValidationReconciler) reconcileValidator(
 		return nil
 	})
 	if err != nil {
-		return "", "", "", err
+		return "", "", "", 0, err
 	}
 
 	service := &corev1.Service{
@@ -110,7 +110,7 @@ func (r *TelemetryValidationReconciler) reconcileValidator(
 		return nil
 	})
 	if err != nil {
-		return "", "", "", err
+		return "", "", "", 0, err
 	}
 
 	monitor := &prometheusv1.ServiceMonitor{
@@ -158,7 +158,7 @@ func (r *TelemetryValidationReconciler) reconcileValidator(
 		return nil
 	})
 	if err != nil {
-		return "", "", "", err
+		return "", "", "", 0, err
 	}
 
 	deployment := &appsv1.Deployment{
@@ -246,11 +246,11 @@ func (r *TelemetryValidationReconciler) reconcileValidator(
 		return nil
 	})
 	if err != nil {
-		return "", "", "", err
+		return "", "", "", 0, err
 	}
 
 	//nolint:revive // in-cluster validator endpoint is HTTP by design.
-	return validatorName, validatorServiceName, fmt.Sprintf("http://%s.%s.svc.cluster.local:%d", validatorServiceName, validation.Namespace, validatorPort), nil
+	return validatorName, validatorServiceName, fmt.Sprintf("http://%s.%s.svc.cluster.local:%d", validatorServiceName, validation.Namespace, validatorPort), validatorIngressPort, nil
 }
 
 func (r *TelemetryValidationReconciler) deleteManagedValidatorResources(ctx context.Context, validation *hubv1.TelemetryValidation) error {
