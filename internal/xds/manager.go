@@ -18,6 +18,7 @@ import (
 	router "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/http/router/v3"
 	hcm "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/network/http_connection_manager/v3"
 	upstreamhttp "github.com/envoyproxy/go-control-plane/envoy/extensions/upstreams/http/v3"
+	envoytypev3 "github.com/envoyproxy/go-control-plane/envoy/type/v3"
 	"github.com/envoyproxy/go-control-plane/pkg/cache/types"
 	"github.com/envoyproxy/go-control-plane/pkg/cache/v3"
 	"github.com/envoyproxy/go-control-plane/pkg/resource/v3"
@@ -76,7 +77,15 @@ func (m *Manager) UpdateSnapshot(ctx context.Context, nodeID string, collectors 
 		UpstreamProtocolOptions: &upstreamhttp.HttpProtocolOptions_ExplicitHttpConfig_{
 			ExplicitHttpConfig: &upstreamhttp.HttpProtocolOptions_ExplicitHttpConfig{
 				ProtocolConfig: &upstreamhttp.HttpProtocolOptions_ExplicitHttpConfig_Http2ProtocolOptions{
-					Http2ProtocolOptions: &core.Http2ProtocolOptions{},
+					Http2ProtocolOptions: &core.Http2ProtocolOptions{
+						MaxConcurrentStreams:         wrapperspb.UInt32(50),                    //nolint:mnd
+						InitialStreamWindowSize:     wrapperspb.UInt32(1024 * 1024),            //nolint:mnd
+						InitialConnectionWindowSize: wrapperspb.UInt32(4 * 1024 * 1024),        //nolint:mnd
+						ConnectionKeepalive: &core.KeepaliveSettings{
+							Interval: durationpb.New(30 * time.Second), //nolint:mnd
+							Timeout:  durationpb.New(5 * time.Second),  //nolint:mnd
+						},
+					},
 				},
 			},
 		},
@@ -89,7 +98,7 @@ func (m *Manager) UpdateSnapshot(ctx context.Context, nodeID string, collectors 
 	portMap := make(map[uint32][]collectorPort)
 
 	for _, c := range collectors {
-		if isShadowCollector(c) {
+		if IsShadowCollector(c) {
 			continue
 		}
 
@@ -127,7 +136,7 @@ func (m *Manager) UpdateSnapshot(ctx context.Context, nodeID string, collectors 
 		for _, cp := range cpList {
 			// Cluster name is based on the service it forwards to
 			clusterName := fmt.Sprintf("%s_%d", cp.name, cp.port)
-			appendCluster(&clusters, seenClusters, newDNSCluster(clusterName, cp.svc, cp.port, protocolOptionsForCollectorPort(cp, upstreamProtocolOptionsAny)))
+			appendCluster(&clusters, seenClusters, newDNSCluster(clusterName, cp.svc, cp.port, protocolOptionsForCollectorPort(cp, upstreamProtocolOptionsAny), false))
 
 			mirrorTargets := validationTargetsForCollectorPort(log, cp, port, validations)
 			for _, target := range mirrorTargets {
@@ -142,7 +151,7 @@ func (m *Manager) UpdateSnapshot(ctx context.Context, nodeID string, collectors 
 				)
 			}
 			for _, target := range mirrorTargets {
-				appendCluster(&clusters, seenClusters, newDNSCluster(target.clusterName, target.address, target.port, protocolOptionsForCollectorPort(cp, upstreamProtocolOptionsAny)))
+				appendCluster(&clusters, seenClusters, newDNSCluster(target.clusterName, target.address, target.port, protocolOptionsForCollectorPort(cp, upstreamProtocolOptionsAny), true))
 			}
 
 			vHost := &route.VirtualHost{
@@ -182,8 +191,11 @@ func (m *Manager) UpdateSnapshot(ctx context.Context, nodeID string, collectors 
 		}
 
 		manager := &hcm.HttpConnectionManager{
-			StatPrefix:        fmt.Sprintf("ingress_%d", port),
-			GenerateRequestId: wrapperspb.Bool(true),
+			StatPrefix:             fmt.Sprintf("ingress_%d", port),
+			GenerateRequestId:      wrapperspb.Bool(true),
+			StreamIdleTimeout:      durationpb.New(10 * time.Minute),  //nolint:mnd
+			RequestTimeout:         durationpb.New(30 * time.Second),  //nolint:mnd
+			RequestHeadersTimeout:  durationpb.New(10 * time.Second),  //nolint:mnd
 			RouteSpecifier: &hcm.HttpConnectionManager_RouteConfig{
 				RouteConfig: &route.RouteConfiguration{
 					Name:         fmt.Sprintf("route_%d", port),
@@ -218,6 +230,7 @@ func (m *Manager) UpdateSnapshot(ctx context.Context, nodeID string, collectors 
 					},
 				},
 			},
+			PerConnectionBufferLimitBytes: wrapperspb.UInt32(32 * 1024 * 1024), //nolint:mnd
 			FilterChains: []*listener.FilterChain{{
 				Filters: []*listener.Filter{{
 					Name: wellknown.HTTPConnectionManager,
@@ -251,6 +264,12 @@ func buildRoute(clusterName string, mirrorTargets []routeTarget) *route.Route {
 	for _, target := range mirrorTargets {
 		requestMirrorPolicies = append(requestMirrorPolicies, &route.RouteAction_RequestMirrorPolicy{
 			Cluster: target.clusterName,
+			RuntimeFraction: &core.RuntimeFractionalPercent{
+				DefaultValue: &envoytypev3.FractionalPercent{
+					Numerator:   100, //nolint:mnd
+					Denominator: envoytypev3.FractionalPercent_HUNDRED,
+				},
+			},
 		})
 	}
 
@@ -272,9 +291,19 @@ func buildRoute(clusterName string, mirrorTargets []routeTarget) *route.Route {
 				ClusterSpecifier: &route.RouteAction_Cluster{
 					Cluster: clusterName,
 				},
+				// Timeout is disabled (0) so the upstream sender (DataDog agent, OTEL SDK) governs
+				// the overall deadline. Envoy retries only on connection-level failures where
+				// the request provably never reached the collector, avoiding duplicate delivery.
+				Timeout:     durationpb.New(0),
+				IdleTimeout: durationpb.New(10 * time.Minute), //nolint:mnd
 				RetryPolicy: &route.RetryPolicy{
-					RetryOn:    "5xx,connect-failure,refused-stream,reset,unavailable",
-					NumRetries: wrapperspb.UInt32(2), //nolint:mnd
+					RetryOn:       "connect-failure,refused-stream,reset",
+					NumRetries:    wrapperspb.UInt32(1), //nolint:mnd
+					PerTryTimeout: durationpb.New(5 * time.Second), //nolint:mnd
+					RetryBackOff: &route.RetryPolicy_RetryBackOff{
+						BaseInterval: durationpb.New(100 * time.Millisecond), //nolint:mnd
+						MaxInterval:  durationpb.New(1 * time.Second),        //nolint:mnd
+					},
 				},
 				RequestMirrorPolicies: requestMirrorPolicies,
 			},
@@ -282,14 +311,59 @@ func buildRoute(clusterName string, mirrorTargets []routeTarget) *route.Route {
 	}
 }
 
-func newDNSCluster(name, address string, port uint32, upstreamProtocolOptionsAny *anypb.Any) *cluster.Cluster {
+// newDNSCluster creates a STRICT_DNS cluster for the given address and port.
+// isMirror should be true for validation mirror targets (shadow collector, fidelity validator)
+// to apply tighter circuit breaker limits and shorter connect timeouts, preventing mirror
+// traffic from competing with primary collector traffic.
+func newDNSCluster(name, address string, port uint32, upstreamProtocolOptionsAny *anypb.Any, isMirror bool) *cluster.Cluster {
+	isGRPC := upstreamProtocolOptionsAny != nil
+
+	connectTimeout := 5 * time.Second
+	if isGRPC {
+		connectTimeout = 15 * time.Second //nolint:mnd
+		if isMirror {
+			connectTimeout = 10 * time.Second //nolint:mnd
+		}
+	}
+
+	bufferLimitBytes := uint32(32 * 1024 * 1024) //nolint:mnd
+	if isMirror {
+		bufferLimitBytes = 10 * 1024 * 1024 //nolint:mnd
+	}
+
+	maxConns := uint32(100) //nolint:mnd
+	maxReqs := uint32(500)  //nolint:mnd
+	if isMirror {
+		maxConns = 50  //nolint:mnd
+		maxReqs = 200  //nolint:mnd
+	}
+
 	c := &cluster.Cluster{
 		Name:           name,
-		ConnectTimeout: durationpb.New(5 * time.Second), //nolint:mnd
+		ConnectTimeout: durationpb.New(connectTimeout),
 		ClusterDiscoveryType: &cluster.Cluster_Type{
 			Type: cluster.Cluster_STRICT_DNS,
 		},
-		LbPolicy: cluster.Cluster_ROUND_ROBIN,
+		LbPolicy:                      cluster.Cluster_ROUND_ROBIN,
+		PerConnectionBufferLimitBytes: wrapperspb.UInt32(bufferLimitBytes),
+		CircuitBreakers: &cluster.CircuitBreakers{
+			Thresholds: []*cluster.CircuitBreakers_Thresholds{{
+				Priority:           core.RoutingPriority_DEFAULT,
+				MaxConnections:     wrapperspb.UInt32(maxConns),
+				MaxPendingRequests: wrapperspb.UInt32(maxConns),
+				MaxRequests:        wrapperspb.UInt32(maxReqs),
+				MaxRetries:         wrapperspb.UInt32(3), //nolint:mnd
+			}},
+		},
+		OutlierDetection: &cluster.OutlierDetection{
+			Consecutive_5Xx:                wrapperspb.UInt32(5),                    //nolint:mnd
+			ConsecutiveGatewayFailure:      wrapperspb.UInt32(5),                    //nolint:mnd
+			Interval:                       durationpb.New(10 * time.Second),        //nolint:mnd
+			BaseEjectionTime:               durationpb.New(30 * time.Second),        //nolint:mnd
+			MaxEjectionPercent:             wrapperspb.UInt32(50),                   //nolint:mnd
+			SplitExternalLocalOriginErrors: true,
+			ConsecutiveLocalOriginFailure:  wrapperspb.UInt32(5),                    //nolint:mnd
+		},
 		LoadAssignment: &endpoint.ClusterLoadAssignment{
 			ClusterName: name,
 			Endpoints: []*endpoint.LocalityLbEndpoints{{
@@ -375,7 +449,7 @@ func shadowCollectorName(collectorName string) string {
 	return collectorName + "-shadow"
 }
 
-func isShadowCollector(c otelv1beta1.OpenTelemetryCollector) bool {
+func IsShadowCollector(c otelv1beta1.OpenTelemetryCollector) bool {
 	if c.Labels["hub.mydecisive.ai/shadow"] == "true" {
 		return true
 	}
