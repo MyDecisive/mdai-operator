@@ -1,6 +1,7 @@
 package controller
 
 import (
+	_ "embed"
 	"encoding/json"
 	"fmt"
 	"maps"
@@ -9,8 +10,6 @@ import (
 	"sync"
 
 	"sigs.k8s.io/yaml"
-
-	_ "embed"
 
 	otelv1beta1 "github.com/open-telemetry/opentelemetry-operator/apis/v1beta1"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
@@ -332,10 +331,11 @@ func resolveTemplateValues(value any, vars map[string]string) any {
 		}
 		return resolved
 	case map[string]any:
+		result := make(map[string]any, len(v))
 		for key, nested := range v {
-			v[key] = resolveTemplateValues(nested, vars)
+			result[key] = resolveTemplateValues(nested, vars)
 		}
-		return v
+		return result
 	case []any:
 		for i := range v {
 			v[i] = resolveTemplateValues(v[i], vars)
