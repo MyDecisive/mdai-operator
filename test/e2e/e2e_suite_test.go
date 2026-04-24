@@ -3,6 +3,7 @@ package e2e
 import (
 	"os"
 	"os/exec"
+	"runtime"
 	"testing"
 	"time"
 
@@ -24,8 +25,15 @@ var (
 	// with the code source changes to be tested.
 	projectImage = "mdai-operator:v0.0.1"
 
-	// projectPlatform is the platform to build the test docker image for
-	projectPlatform = "linux/amd64"
+	// projectPlatform is the platform to build the test docker image for.
+	// Defaults to the host architecture so local Kind clusters work without cross-compilation.
+	// Override by setting the PLATFORMS env var (e.g. PLATFORMS=linux/amd64 in CI).
+	projectPlatform = func() string {
+		if p := os.Getenv("PLATFORMS"); p != "" {
+			return p
+		}
+		return "linux/" + runtime.GOARCH
+	}()
 )
 
 // TestE2E runs the end-to-end (e2e) test suite for the project. These tests execute in an isolated,
