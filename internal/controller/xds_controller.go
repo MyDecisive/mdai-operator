@@ -93,7 +93,6 @@ func (r *XDSReconciler) SetupWithManager(mgr ctrl.Manager) error {
 					},
 				}}
 			}),
-			builder.WithPredicates(predicate.GenerationChangedPredicate{}),
 		).
 		Named("xds-reconciler").
 		Complete(r)

@@ -25,6 +25,7 @@ import (
 	otelv1beta1 "github.com/open-telemetry/opentelemetry-operator/apis/v1beta1"
 	"google.golang.org/protobuf/types/known/anypb"
 	"google.golang.org/protobuf/types/known/durationpb"
+	"google.golang.org/protobuf/types/known/wrapperspb"
 )
 
 type Manager struct {
@@ -101,7 +102,18 @@ func (m *Manager) UpdateSnapshot(ctx context.Context, nodeID string, collectors 
 			clusterName := fmt.Sprintf("%s_%d", cp.name, cp.port)
 			appendCluster(&clusters, seenClusters, newDNSCluster(clusterName, cp.svc, cp.port))
 
-			mirrorTargets := validationTargetsForCollectorPort(cp, port, validations)
+			mirrorTargets := validationTargetsForCollectorPort(log, cp, port, validations)
+			for _, target := range mirrorTargets {
+				log.Info(
+					"xDS mirror forwarding target",
+					"collector", cp.name,
+					"collector_namespace", cp.ns,
+					"listener_port", port,
+					"target_cluster", target.clusterName,
+					"target_address", target.address,
+					"target_port", target.port,
+				)
+			}
 			for _, target := range mirrorTargets {
 				appendCluster(&clusters, seenClusters, newDNSCluster(target.clusterName, target.address, target.port))
 			}
@@ -121,7 +133,7 @@ func (m *Manager) UpdateSnapshot(ctx context.Context, nodeID string, collectors 
 
 		if len(cpList) == 1 {
 			clusterName := fmt.Sprintf("%s_%d", cpList[0].name, cpList[0].port)
-			mirrorTargets := validationTargetsForCollectorPort(cpList[0], port, validations)
+			mirrorTargets := validationTargetsForCollectorPort(log, cpList[0], port, validations)
 			virtualHosts = append(virtualHosts, &route.VirtualHost{
 				Name:    fmt.Sprintf("vhost_%s_%d_default", cpList[0].name, cpList[0].port),
 				Domains: []string{"*"},
@@ -129,7 +141,7 @@ func (m *Manager) UpdateSnapshot(ctx context.Context, nodeID string, collectors 
 			})
 		} else if len(cpList) > 1 {
 			defaultClusterName := fmt.Sprintf("%s_%d", cpList[0].name, cpList[0].port)
-			mirrorTargets := validationTargetsForCollectorPort(cpList[0], port, validations)
+			mirrorTargets := validationTargetsForCollectorPort(log, cpList[0], port, validations)
 			virtualHosts = append(virtualHosts, &route.VirtualHost{
 				Name:    fmt.Sprintf("vhost_default_%d", port),
 				Domains: []string{"*"},
@@ -143,7 +155,8 @@ func (m *Manager) UpdateSnapshot(ctx context.Context, nodeID string, collectors 
 		}
 
 		manager := &hcm.HttpConnectionManager{
-			StatPrefix: fmt.Sprintf("ingress_%d", port),
+			StatPrefix:        fmt.Sprintf("ingress_%d", port),
+			GenerateRequestId: wrapperspb.Bool(true),
 			RouteSpecifier: &hcm.HttpConnectionManager_RouteConfig{
 				RouteConfig: &route.RouteConfiguration{
 					Name:         fmt.Sprintf("route_%d", port),
@@ -220,6 +233,13 @@ func buildRoute(clusterName string, mirrorTargets []routeTarget) *route.Route {
 				Prefix: "/",
 			},
 		},
+		RequestHeadersToAdd: []*core.HeaderValueOption{{
+			Header: &core.HeaderValue{
+				Key:   "x-correlation-id",
+				Value: "%REQ(X-REQUEST-ID)%",
+			},
+			AppendAction: core.HeaderValueOption_OVERWRITE_IF_EXISTS_OR_ADD,
+		}},
 		Action: &route.Route_Route{
 			Route: &route.RouteAction{
 				ClusterSpecifier: &route.RouteAction_Cluster{
@@ -272,7 +292,7 @@ func appendCluster(clusters *[]types.Resource, seen map[string]struct{}, c *clus
 	*clusters = append(*clusters, c)
 }
 
-func validationTargetsForCollectorPort(cp collectorPort, listenerPort uint32, validations []hubv1.TelemetryValidation) []routeTarget {
+func validationTargetsForCollectorPort(log logr.Logger, cp collectorPort, listenerPort uint32, validations []hubv1.TelemetryValidation) []routeTarget {
 	targets := make([]routeTarget, 0)
 	for _, validation := range validations {
 		if !validation.Spec.Enabled || validation.Spec.CollectorRef.Name != cp.name || validation.Namespace != cp.ns {
@@ -280,9 +300,20 @@ func validationTargetsForCollectorPort(cp collectorPort, listenerPort uint32, va
 		}
 
 		if validation.Spec.IngressCapture.Enabled {
+			validatorService := validation.Status.ValidatorService
+			if strings.TrimSpace(validatorService) == "" {
+				log.Info(
+					"xDS ingress capture target skipped; validator service not ready",
+					"telemetry_validation", validation.Name,
+					"namespace", validation.Namespace,
+					"collector", cp.name,
+					"listener_port", listenerPort,
+				)
+				continue
+			}
 			targets = append(targets, routeTarget{
 				clusterName: fmt.Sprintf("%s_validator_%d", cp.name, listenerPort),
-				address:     "mdai-fidelity-validator.mdai.svc.cluster.local",
+				address:     fmt.Sprintf("%s.%s.svc.cluster.local", validatorService, validation.Namespace),
 				port:        listenerPort,
 			})
 		}
