@@ -17,7 +17,3 @@ spec:
       rules: []
     fieldMappingYAML: |
       mappings: []
-  shadowCollector:
-    enabled: true
-  ingressCapture:
-    enabled: true

@@ -72,18 +72,6 @@ spec:
                   - matchExporterPrefixes
                   type: object
                 type: array
-              ingressCapture:
-                properties:
-                  enabled:
-                    default: true
-                    type: boolean
-                type: object
-              shadowCollector:
-                properties:
-                  enabled:
-                    default: true
-                    type: boolean
-                type: object
               signals:
                 items:
                   enum:
@@ -112,7 +100,6 @@ spec:
                 type: object
             required:
             - collectorRef
-            - validator
             type: object
           status:
             properties:

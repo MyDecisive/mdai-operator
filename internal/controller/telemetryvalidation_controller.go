@@ -52,6 +52,12 @@ const (
 //go:embed config/telemetryvalidation_exporter_rewrites.yaml
 var telemetryValidationExporterRewritesYAML string
 
+//go:embed config/telemetryvalidation_validator_rules.yaml
+var telemetryValidationValidatorRulesDefaultYAML string
+
+//go:embed config/telemetryvalidation_validator_field_mapping.yaml
+var telemetryValidationValidatorFieldMappingDefaultYAML string
+
 var (
 	exporterRewritesOnce   sync.Once
 	cachedExporterRewrites exporterRewriteConfig
@@ -117,7 +123,7 @@ func (r *TelemetryValidationReconciler) Reconcile(ctx context.Context, req ctrl.
 	shadowName := shadowCollectorName(source.Name)
 	shadowKey := types.NamespacedName{Name: shadowName, Namespace: validation.Namespace}
 
-	if !validation.Spec.Enabled || !validation.Spec.ShadowCollector.Enabled {
+	if !validation.Spec.Enabled {
 		shadow := &otelv1beta1.OpenTelemetryCollector{}
 		if err := r.Get(ctx, shadowKey, shadow); err == nil {
 			if err := r.Delete(ctx, shadow); err != nil && !apierrors.IsNotFound(err) {
@@ -211,7 +217,11 @@ func (r *TelemetryValidationReconciler) SetupWithManager(mgr ctrl.Manager) error
 		Complete(r)
 }
 
-func (r *TelemetryValidationReconciler) reconcileValidator(ctx context.Context, validation *hubv1.TelemetryValidation) (string, string, string, error) {
+//nolint:revive // function-result-limit: returning these values avoids an extra struct in hot reconcile flow.
+func (r *TelemetryValidationReconciler) reconcileValidator(
+	ctx context.Context,
+	validation *hubv1.TelemetryValidation,
+) (string, string, string, error) {
 	if !validation.Spec.Enabled {
 		if err := r.deleteManagedValidatorResources(ctx, validation); err != nil {
 			return "", "", "", err
@@ -227,6 +237,7 @@ func (r *TelemetryValidationReconciler) reconcileValidator(ctx context.Context, 
 	if err != nil {
 		return "", "", "", err
 	}
+	validatorRulesYAML, validatorFieldMappingYAML := resolveValidatorConfigYAMLs(validation)
 	validatorReplicas := validatorReplicas(validation.Spec.Validator.Replicas)
 	validatorImage := validatorImage(validation.Spec.Validator.Image)
 
@@ -246,8 +257,8 @@ func (r *TelemetryValidationReconciler) reconcileValidator(ctx context.Context, 
 			"hub.mydecisive.ai/role": "telemetry-validation-validator",
 		}
 		cfgMap.Data = map[string]string{
-			"rules.yaml":         validation.Spec.Validator.RulesYAML,
-			"field-mapping.yaml": validation.Spec.Validator.FieldMappingYAML,
+			"rules.yaml":         validatorRulesYAML,
+			"field-mapping.yaml": validatorFieldMappingYAML,
 		}
 		return nil
 	})
@@ -374,6 +385,7 @@ func (r *TelemetryValidationReconciler) reconcileValidator(ctx context.Context, 
 		return "", "", "", err
 	}
 
+	//nolint:revive // in-cluster validator endpoint is HTTP by design.
 	return validatorName, validatorServiceName, fmt.Sprintf("http://%s.%s.svc.cluster.local:%d", validatorServiceName, validation.Namespace, validatorPort), nil
 }
 
@@ -394,11 +406,11 @@ func (r *TelemetryValidationReconciler) deleteManagedValidatorResources(ctx cont
 }
 
 func validatorNameForTV(tvName string) string {
-	return fmt.Sprintf("%s-fidelity-validator", tvName)
+	return tvName + "-fidelity-validator"
 }
 
 func validatorConfigMapNameForTV(tvName string) string {
-	return fmt.Sprintf("%s-fidelity-validator-config", tvName)
+	return tvName + "-fidelity-validator-config"
 }
 
 func validatorPort(port int32) int32 {
@@ -420,6 +432,21 @@ func validatorImage(image string) string {
 		return image
 	}
 	return defaultValidatorImage
+}
+
+//nolint:revive // confusing-results: paired YAML string return is intentional and localized.
+func resolveValidatorConfigYAMLs(validation *hubv1.TelemetryValidation) (string, string) {
+	rulesYAML := strings.TrimSpace(validation.Spec.Validator.RulesYAML)
+	fieldMappingYAML := strings.TrimSpace(validation.Spec.Validator.FieldMappingYAML)
+
+	if rulesYAML == "" {
+		rulesYAML = strings.TrimSpace(telemetryValidationValidatorRulesDefaultYAML)
+	}
+	if fieldMappingYAML == "" {
+		fieldMappingYAML = strings.TrimSpace(telemetryValidationValidatorFieldMappingDefaultYAML)
+	}
+
+	return rulesYAML, fieldMappingYAML
 }
 
 func (r *TelemetryValidationReconciler) resolveValidatorIngressPorts(ctx context.Context, validation *hubv1.TelemetryValidation) (int32, []int32, error) {
@@ -447,10 +474,26 @@ func (r *TelemetryValidationReconciler) resolveValidatorIngressPorts(ctx context
 
 	resolvedPorts := make([]int32, 0, len(allPorts))
 	for _, p := range allPorts {
-		resolvedPorts = append(resolvedPorts, int32(p))
+		converted, err := uint32ToInt32(p)
+		if err != nil {
+			return 0, nil, err
+		}
+		resolvedPorts = append(resolvedPorts, converted)
 	}
 
-	return int32(preferredPorts[0]), resolvedPorts, nil
+	preferredPort, err := uint32ToInt32(preferredPorts[0])
+	if err != nil {
+		return 0, nil, err
+	}
+
+	return preferredPort, resolvedPorts, nil
+}
+
+func uint32ToInt32(value uint32) (int32, error) {
+	if value > uint32(1<<31-1) {
+		return 0, fmt.Errorf("value %d exceeds int32 max", value)
+	}
+	return int32(value), nil
 }
 
 func buildValidatorReceiverServicePorts(exposedPorts []int32, targetPort int32) []corev1.ServicePort {
@@ -725,6 +768,7 @@ func validatorExportBaseURL(validatorEndpoint string) string {
 	if strings.TrimSpace(validatorEndpoint) != "" {
 		return strings.TrimSuffix(validatorEndpoint, "/")
 	}
+	//nolint:revive // in-cluster validator endpoint is HTTP by design.
 	return "http://mdai-fidelity-validator.mdai.svc.cluster.local:18081"
 }
 
@@ -814,7 +858,11 @@ func applyStringReplacementsRecursive(node any, replacements map[string]string, 
 			case string:
 				updated := castValue
 				for old, newValue := range replacements {
-					updated = strings.ReplaceAll(updated, resolveTemplateValues(old, vars).(string), resolveTemplateValues(newValue, vars).(string))
+					updated = strings.ReplaceAll(
+						updated,
+						resolveTemplateString(old, vars),
+						resolveTemplateString(newValue, vars),
+					)
 				}
 				typed[key] = updated
 			default:
@@ -825,7 +873,17 @@ func applyStringReplacementsRecursive(node any, replacements map[string]string, 
 		for _, value := range typed {
 			applyStringReplacementsRecursive(value, replacements, vars)
 		}
+	default:
+		return
 	}
+}
+
+func resolveTemplateString(value string, vars map[string]string) string {
+	resolved := value
+	for key, replacement := range vars {
+		resolved = strings.ReplaceAll(resolved, "{{ "+key+" }}", replacement)
+	}
+	return resolved
 }
 
 func getExporterRewriteConfig() exporterRewriteConfig {
@@ -918,18 +976,14 @@ func mergeExporterRewriteRule(base exporterRewriteRule, override exporterRewrite
 		if merged.Set == nil {
 			merged.Set = map[string]any{}
 		}
-		for key, value := range override.Set {
-			merged.Set[key] = value
-		}
+		maps.Copy(merged.Set, override.Set)
 	}
 	if len(base.ReplaceStrings) > 0 || len(override.ReplaceStrings) > 0 {
 		merged.ReplaceStrings = maps.Clone(base.ReplaceStrings)
 		if merged.ReplaceStrings == nil {
 			merged.ReplaceStrings = map[string]string{}
 		}
-		for key, value := range override.ReplaceStrings {
-			merged.ReplaceStrings[key] = value
-		}
+		maps.Copy(merged.ReplaceStrings, override.ReplaceStrings)
 	}
 	return merged
 }
@@ -959,9 +1013,7 @@ func mapStringString(in map[string]string) map[string]string {
 		return nil
 	}
 	out := make(map[string]string, len(in))
-	for key, value := range in {
-		out[key] = value
-	}
+	maps.Copy(out, in)
 	return out
 }
 

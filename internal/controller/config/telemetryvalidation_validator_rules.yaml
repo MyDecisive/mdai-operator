@@ -1,0 +1,24 @@
+signals:
+  metrics:
+    required_attributes:
+      - host
+      - metric
+      - tags
+      - type
+  traces:
+    required_attributes:
+      - trace_id
+      - span_count
+      - service
+  logs:
+    required_attributes:
+      - name: ddsource
+        compare: presence_only
+#      - ddtags
+      - name: hostname
+        compare: presence_only
+      - service
+      - message
+      - status
+      - name: timestamp
+        compare: presence_only
