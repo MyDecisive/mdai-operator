@@ -264,7 +264,7 @@ func validatorExportBaseURL(validatorEndpoint string) string {
 		return strings.TrimSuffix(validatorEndpoint, "/")
 	}
 
-	return "http://mdai-fidelity-validator.mdai.svc.cluster.local:18081"
+	return "http://mdai-fidelity-validator.mdai.svc.cluster.local:18081" //nolint: revive
 }
 
 func pipelineSignal(name string) (hubv1.TelemetrySignal, bool) {
@@ -520,12 +520,12 @@ func defaultExporterRewriteConfig() exporterRewriteConfig {
 				Name:                  "datadog-default",
 				MatchExporterPrefixes: []string{"datadog"},
 				Set: map[string]any{
-					"api.fail_on_invalid_key": false,
-					"host_metadata.enabled":   false,
+					"api.fail_on_invalid_key":    false,
+					"host_metadata.enabled":      false,
 					"hostname_detection_timeout": "2s",
-					"metrics.endpoint":        "{{ validator_endpoint }}/observe/exporter/{{ namespace }}/{{ telemetry_validation }}/{{ collector }}/{{ exporter }}",
-					"logs.endpoint":           "{{ validator_endpoint }}/observe/exporter/{{ namespace }}/{{ telemetry_validation }}/{{ collector }}/{{ exporter }}",
-					"traces.endpoint":         "{{ validator_endpoint }}/observe/exporter/{{ namespace }}/{{ telemetry_validation }}/{{ collector }}/{{ exporter }}",
+					"metrics.endpoint":           "{{ validator_endpoint }}/observe/exporter/{{ namespace }}/{{ telemetry_validation }}/{{ collector }}/{{ exporter }}",
+					"logs.endpoint":              "{{ validator_endpoint }}/observe/exporter/{{ namespace }}/{{ telemetry_validation }}/{{ collector }}/{{ exporter }}",
+					"traces.endpoint":            "{{ validator_endpoint }}/observe/exporter/{{ namespace }}/{{ telemetry_validation }}/{{ collector }}/{{ exporter }}",
 				},
 			},
 		},
