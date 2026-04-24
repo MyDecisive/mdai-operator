@@ -535,30 +535,6 @@ func readyEndpointSlice(serviceName, namespace string, ports ...int32) *discover
 	}
 }
 
-func notReadyEndpointSlice(serviceName, namespace string, ports ...int32) *discoveryv1.EndpointSlice {
-	ready := false
-	slicePorts := make([]discoveryv1.EndpointPort, 0, len(ports))
-	for _, port := range ports {
-		p := port
-		slicePorts = append(slicePorts, discoveryv1.EndpointPort{Port: &p, Protocol: ptrTo(corev1.ProtocolTCP)})
-	}
-	return &discoveryv1.EndpointSlice{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      serviceName + "-slice-not-ready",
-			Namespace: namespace,
-			Labels: map[string]string{
-				discoveryv1.LabelServiceName: serviceName,
-			},
-		},
-		AddressType: discoveryv1.AddressTypeIPv4,
-		Endpoints: []discoveryv1.Endpoint{{
-			Addresses:  []string{"10.0.0.1"},
-			Conditions: discoveryv1.EndpointConditions{Ready: &ready},
-		}},
-		Ports: slicePorts,
-	}
-}
-
 func ptrTo[T any](v T) *T {
 	return &v
 }
