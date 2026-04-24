@@ -17,7 +17,7 @@ SHELL = /usr/bin/env bash -o pipefail
 .SHELLFLAGS = -ec
 
 # Update this version to match new release tag and run helm targets
-VERSION = 0.2.12
+VERSION ?= 0.2.12
 GOTOOLCHAIN ?= go1.25.0
 GO := CGO_ENABLED=0 GOTOOLCHAIN=$(GOTOOLCHAIN) go 
 GO_TEST := $(GO) test -count=1

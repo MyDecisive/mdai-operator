@@ -1,0 +1,10 @@
+rules:
+  - name: datadog-default
+    match_exporter_prefixes:
+      - datadog
+    set:
+      api.site: datadoghq.local
+      tls.insecure_skip_verify: true
+      metrics.endpoint: "{{ validator_endpoint }}/intake/exporter/{{ namespace }}/{{ telemetry_validation }}/{{ collector }}/{{ exporter }}"
+      logs.endpoint: "{{ validator_endpoint }}/intake/exporter/{{ namespace }}/{{ telemetry_validation }}/{{ collector }}/{{ exporter }}"
+      traces.endpoint: "{{ validator_endpoint }}/intake/exporter/{{ namespace }}/{{ telemetry_validation }}/{{ collector }}/{{ exporter }}"

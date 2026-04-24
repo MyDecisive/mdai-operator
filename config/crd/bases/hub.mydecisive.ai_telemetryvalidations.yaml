@@ -48,6 +48,28 @@ spec:
               enabled:
                 default: true
                 type: boolean
+              exporterRewrites:
+                items:
+                  properties:
+                    matchExporterPrefixes:
+                      items:
+                        type: string
+                      minItems: 1
+                      type: array
+                    name:
+                      type: string
+                    replaceStrings:
+                      additionalProperties:
+                        type: string
+                      type: object
+                    set:
+                      additionalProperties:
+                        x-kubernetes-preserve-unknown-fields: true
+                      type: object
+                  required:
+                  - matchExporterPrefixes
+                  type: object
+                type: array
               ingressCapture:
                 properties:
                   enabled:
@@ -70,14 +92,21 @@ spec:
                 type: array
               validator:
                 properties:
-                  endpoint:
-                    description: |-
-                      Endpoint is the validator ingress endpoint used for raw OTLP capture and
-                      as the basis for shadow Datadog exporter endpoint rewriting.
-                    minLength: 1
+                  fieldMappingYAML:
                     type: string
-                required:
-                - endpoint
+                  image:
+                    default: ghcr.io/mydecisive/mdai-fidelity-validator:0.1.0
+                    type: string
+                  port:
+                    default: 18081
+                    format: int32
+                    type: integer
+                  replicas:
+                    default: 1
+                    format: int32
+                    type: integer
+                  rulesYAML:
+                    type: string
                 type: object
             required:
             - collectorRef
@@ -155,6 +184,15 @@ spec:
               shadowCollectorName:
                 type: string
               shadowServiceName:
+                type: string
+              validatorEndpoint:
+                type: string
+              validatorIngressPort:
+                format: int32
+                type: integer
+              validatorName:
+                type: string
+              validatorService:
                 type: string
             type: object
         type: object
