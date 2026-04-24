@@ -30,7 +30,7 @@ import (
 
 type Manager struct {
 	cache   cache.SnapshotCache
-	version int64
+	version atomic.Int64
 	mu      sync.Mutex
 }
 
@@ -203,7 +203,7 @@ func (m *Manager) UpdateSnapshot(ctx context.Context, nodeID string, collectors 
 		listeners = append(listeners, uListener)
 	}
 
-	v := atomic.AddInt64(&m.version, 1)
+	v := m.version.Add(1)
 	versionStr := strconv.FormatInt(v, 10)
 
 	snapshot, err := cache.NewSnapshot(versionStr, map[resource.Type][]types.Resource{
@@ -299,33 +299,29 @@ func validationTargetsForCollectorPort(log logr.Logger, cp collectorPort, listen
 			continue
 		}
 
-		if validation.Spec.IngressCapture.Enabled {
-			validatorService := validation.Status.ValidatorService
-			if strings.TrimSpace(validatorService) == "" {
-				log.Info(
-					"xDS ingress capture target skipped; validator service not ready",
-					"telemetry_validation", validation.Name,
-					"namespace", validation.Namespace,
-					"collector", cp.name,
-					"listener_port", listenerPort,
-				)
-				continue
-			}
-			targets = append(targets, routeTarget{
-				clusterName: fmt.Sprintf("%s_validator_%d", cp.name, listenerPort),
-				address:     fmt.Sprintf("%s.%s.svc.cluster.local", validatorService, validation.Namespace),
-				port:        listenerPort,
-			})
+		validatorService := validation.Status.ValidatorService
+		if strings.TrimSpace(validatorService) == "" {
+			log.Info(
+				"xDS ingress capture target skipped; validator service not ready",
+				"telemetry_validation", validation.Name,
+				"namespace", validation.Namespace,
+				"collector", cp.name,
+				"listener_port", listenerPort,
+			)
+			continue
 		}
+		targets = append(targets, routeTarget{
+			clusterName: fmt.Sprintf("%s_validator_%d", cp.name, listenerPort),
+			address:     fmt.Sprintf("%s.%s.svc.cluster.local", validatorService, validation.Namespace),
+			port:        listenerPort,
+		})
 
-		if validation.Spec.ShadowCollector.Enabled {
-			shadowName := shadowCollectorName(cp.name)
-			targets = append(targets, routeTarget{
-				clusterName: fmt.Sprintf("%s_shadow_%d", cp.name, listenerPort),
-				address:     fmt.Sprintf("%s-collector.%s.svc.cluster.local", shadowName, validation.Namespace),
-				port:        listenerPort,
-			})
-		}
+		shadowName := shadowCollectorName(cp.name)
+		targets = append(targets, routeTarget{
+			clusterName: fmt.Sprintf("%s_shadow_%d", cp.name, listenerPort),
+			address:     fmt.Sprintf("%s-collector.%s.svc.cluster.local", shadowName, validation.Namespace),
+			port:        listenerPort,
+		})
 	}
 
 	return targets

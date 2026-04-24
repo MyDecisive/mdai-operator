@@ -98,9 +98,6 @@ func TestUpdateSnapshotUsesValidatorServiceFromTelemetryValidationStatus(t *test
 				CollectorRef: hubv1.TelemetryValidationCollectorRef{
 					Name: "gateway",
 				},
-				IngressCapture: hubv1.TelemetryValidationIngressCaptureSpec{
-					Enabled: true,
-				},
 			},
 			Status: hubv1.TelemetryValidationStatus{
 				ValidatorService: "sample-fidelity-validator",
@@ -149,9 +146,6 @@ func TestUpdateSnapshotSkipsValidatorMirrorUntilValidatorServiceReady(t *testing
 				CollectorRef: hubv1.TelemetryValidationCollectorRef{
 					Name: "gateway",
 				},
-				IngressCapture: hubv1.TelemetryValidationIngressCaptureSpec{
-					Enabled: true,
-				},
 			},
 		},
 	}
@@ -186,9 +180,6 @@ func TestUpdateSnapshotUsesCollectorListenerPortForValidatorMirror(t *testing.T)
 				Enabled: true,
 				CollectorRef: hubv1.TelemetryValidationCollectorRef{
 					Name: "gateway",
-				},
-				IngressCapture: hubv1.TelemetryValidationIngressCaptureSpec{
-					Enabled: true,
 				},
 			},
 			Status: hubv1.TelemetryValidationStatus{
