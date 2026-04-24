@@ -87,6 +87,8 @@ linters:
         - name: function-length
           exclude: [ "**/*_test.go" ]
           disabled: true
+        - name: identical-switch-branches
+          disabled: true
         - name: line-length-limit
           disabled: true
         - name: max-public-structs
@@ -101,6 +103,8 @@ linters:
         - name: unchecked-type-assertion
           disabled: true
         - name: unused-parameter
+          disabled: true
+        - name: use-slices-sort
           disabled: true
         - name: var-naming
           disabled: true
