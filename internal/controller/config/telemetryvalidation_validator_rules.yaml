@@ -1,18 +1,15 @@
 signals:
   metrics:
     required_attributes:
-      - metric_name
-      - point_timestamp
-      - point_value
-      - service
-      - env
+      - host
+      - metric
+      - tags
+      - type
   traces:
     required_attributes:
-      - env
-      - service
-      - operation_name
-      - resource_name
       - trace_id
+      - span_count
+      - service
   logs:
     required_attributes:
       - name: ddsource

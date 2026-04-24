@@ -39,16 +39,6 @@ type TelemetryValidationValidatorSpec struct {
 	FieldMappingYAML string `json:"fieldMappingYAML,omitempty"`
 }
 
-type TelemetryValidationShadowCollectorSpec struct {
-	// +kubebuilder:default:=true
-	Enabled bool `json:"enabled,omitempty"`
-}
-
-type TelemetryValidationIngressCaptureSpec struct {
-	// +kubebuilder:default:=true
-	Enabled bool `json:"enabled,omitempty"`
-}
-
 type TelemetryValidationExporterRewrite struct {
 	// +optional
 	Name string `json:"name,omitempty"`
@@ -72,13 +62,8 @@ type TelemetryValidationSpec struct {
 	// +optional
 	Signals []TelemetrySignal `json:"signals,omitempty"`
 
-	Validator TelemetryValidationValidatorSpec `json:"validator"`
-
 	// +optional
-	ShadowCollector TelemetryValidationShadowCollectorSpec `json:"shadowCollector,omitempty"`
-
-	// +optional
-	IngressCapture TelemetryValidationIngressCaptureSpec `json:"ingressCapture,omitempty"`
+	Validator TelemetryValidationValidatorSpec `json:"validator,omitempty"`
 
 	// +optional
 	ExporterRewrites []TelemetryValidationExporterRewrite `json:"exporterRewrites,omitempty"`

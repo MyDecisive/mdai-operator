@@ -91,13 +91,66 @@ func TestReconcileValidatorLifecycle(t *testing.T) {
 	tv.Spec.Enabled = false
 	validatorName, validatorService, validatorEndpoint, err = r.reconcileValidator(context.Background(), tv)
 	require.NoError(t, err)
-	assert.Equal(t, "", validatorName)
-	assert.Equal(t, "", validatorService)
-	assert.Equal(t, "", validatorEndpoint)
+	assert.Empty(t, validatorName)
+	assert.Empty(t, validatorService)
+	assert.Empty(t, validatorEndpoint)
 
 	assertObjectNotFound(t, c, &corev1.ConfigMap{}, types.NamespacedName{Name: "sample-fidelity-validator-config", Namespace: "mdai"})
 	assertObjectNotFound(t, c, &corev1.Service{}, types.NamespacedName{Name: "sample-fidelity-validator", Namespace: "mdai"})
 	assertObjectNotFound(t, c, &appsv1.Deployment{}, types.NamespacedName{Name: "sample-fidelity-validator", Namespace: "mdai"})
+}
+
+func TestReconcileValidatorLifecycleUsesEmbeddedDefaultsWhenValidatorConfigEmpty(t *testing.T) {
+	t.Parallel()
+
+	scheme := runtime.NewScheme()
+	require.NoError(t, hubv1.AddToScheme(scheme))
+	require.NoError(t, otelv1beta1.AddToScheme(scheme))
+	require.NoError(t, corev1.AddToScheme(scheme))
+	require.NoError(t, appsv1.AddToScheme(scheme))
+
+	tv := &hubv1.TelemetryValidation{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "sample",
+			Namespace: "mdai",
+		},
+		Spec: hubv1.TelemetryValidationSpec{
+			Enabled: true,
+			CollectorRef: hubv1.TelemetryValidationCollectorRef{
+				Name: "gateway",
+			},
+			Validator: hubv1.TelemetryValidationValidatorSpec{},
+		},
+	}
+	collector := &otelv1beta1.OpenTelemetryCollector{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "gateway",
+			Namespace: "mdai",
+		},
+		Spec: otelv1beta1.OpenTelemetryCollectorSpec{
+			Config: otelv1beta1.Config{
+				Receivers: otelv1beta1.AnyConfig{
+					Object: map[string]any{
+						"datadog": map[string]any{"endpoint": ":8126"},
+					},
+				},
+			},
+		},
+	}
+
+	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(tv, collector).Build()
+	r := &TelemetryValidationReconciler{Client: c, Scheme: scheme}
+
+	_, _, validatorEndpoint, err := r.reconcileValidator(context.Background(), tv)
+	require.NoError(t, err)
+	assert.NotEmpty(t, validatorEndpoint)
+
+	cfg := &corev1.ConfigMap{}
+	assertObjectExists(t, c, cfg, types.NamespacedName{Name: "sample-fidelity-validator-config", Namespace: "mdai"})
+	assert.Contains(t, cfg.Data["rules.yaml"], "signals:")
+	assert.Contains(t, cfg.Data["rules.yaml"], "required_attributes:")
+	assert.Contains(t, cfg.Data["field-mapping.yaml"], "signals:")
+	assert.Contains(t, cfg.Data["field-mapping.yaml"], "correlation_id:")
 }
 
 func assertObjectExists(t *testing.T, c client.Client, obj client.Object, key types.NamespacedName) {
