@@ -17,7 +17,8 @@ package collector
 import (
 	_ "embed"
 	"errors"
-	"sort"
+	"slices"
+	"strings"
 	"testing"
 
 	mdaiv1 "github.com/mydecisive/mdai-operator/api/v1"
@@ -247,16 +248,20 @@ func TestDesiredIngressesAws(t *testing.T) {
 
 		assert.Len(t, ingressRulesGot, len(ingressRulesExpected))
 		for i := range ingressRulesExpected {
-			sort.Slice(ingressRulesGot, func(i, j int) bool { return ingressRulesGot[i].Host < ingressRulesGot[j].Host })
-			sort.Slice(ingressRulesExpected, func(i, j int) bool { return ingressRulesExpected[i].Host < ingressRulesExpected[j].Host })
+			slices.SortFunc(ingressRulesGot, func(a, b networkingv1.IngressRule) int { return strings.Compare(a.Host, b.Host) })
+			slices.SortFunc(ingressRulesExpected, func(a, b networkingv1.IngressRule) int {
+				return strings.Compare(a.Host, b.Host)
+			})
 			assert.Equal(t, ingressRulesExpected[i].Host, ingressRulesGot[i].Host)
 		}
 
 		for i := range ingressRulesExpected {
 			pathsGot := ingressRulesGot[i].HTTP.Paths
 			pathsExpected := ingressRulesExpected[i].HTTP.Paths
-			sort.Slice(pathsGot, func(i, j int) bool { return pathsGot[i].Path < pathsGot[j].Path })
-			sort.Slice(pathsExpected, func(i, j int) bool { return pathsExpected[i].Path < pathsExpected[j].Path })
+			slices.SortFunc(pathsGot, func(a, b networkingv1.HTTPIngressPath) int { return strings.Compare(a.Path, b.Path) })
+			slices.SortFunc(pathsExpected, func(a, b networkingv1.HTTPIngressPath) int {
+				return strings.Compare(a.Path, b.Path)
+			})
 
 			assert.Equal(t, ingressRulesExpected[i].Host, ingressRulesGot[i].Host)
 			assert.Equal(t, ingressRulesExpected, ingressRulesGot)
@@ -385,16 +390,20 @@ func TestDesiredIngressesAws(t *testing.T) {
 
 		assert.Len(t, ingressRulesGot, len(ingressRulesExpected))
 		for i := range ingressRulesExpected {
-			sort.Slice(ingressRulesGot, func(i, j int) bool { return ingressRulesGot[i].Host < ingressRulesGot[j].Host })
-			sort.Slice(ingressRulesExpected, func(i, j int) bool { return ingressRulesExpected[i].Host < ingressRulesExpected[j].Host })
+			slices.SortFunc(ingressRulesGot, func(a, b networkingv1.IngressRule) int { return strings.Compare(a.Host, b.Host) })
+			slices.SortFunc(ingressRulesExpected, func(a, b networkingv1.IngressRule) int {
+				return strings.Compare(a.Host, b.Host)
+			})
 			assert.Equal(t, ingressRulesExpected[i].Host, ingressRulesGot[i].Host)
 		}
 
 		for i := range ingressRulesExpected {
 			pathsGot := ingressRulesGot[i].HTTP.Paths
 			pathsExpected := ingressRulesExpected[i].HTTP.Paths
-			sort.Slice(pathsGot, func(i, j int) bool { return pathsGot[i].Path < pathsGot[j].Path })
-			sort.Slice(pathsExpected, func(i, j int) bool { return pathsExpected[i].Path < pathsExpected[j].Path })
+			slices.SortFunc(pathsGot, func(a, b networkingv1.HTTPIngressPath) int { return strings.Compare(a.Path, b.Path) })
+			slices.SortFunc(pathsExpected, func(a, b networkingv1.HTTPIngressPath) int {
+				return strings.Compare(a.Path, b.Path)
+			})
 
 			assert.Equal(t, ingressRulesExpected[i].Host, ingressRulesGot[i].Host)
 			assert.Equal(t, ingressRulesExpected, ingressRulesGot)
