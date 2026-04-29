@@ -297,8 +297,8 @@ func TestUpdateSnapshotSetsHTTP2UpstreamProtocolOptionsOnClusters(t *testing.T) 
 	require.True(t, ok)
 
 	clusters := concreteSnapshot.GetResources(resource.ClusterType)
-	rawCluster, ok := clusters["gateway_4317"]
-	require.True(t, ok, "gateway_4317 cluster not found")
+	rawCluster, ok := clusters["mdai_gateway_4317"]
+	require.True(t, ok, "mdai_gateway_4317 cluster not found")
 	c, ok := rawCluster.(*cluster.Cluster)
 	require.True(t, ok)
 
@@ -329,8 +329,8 @@ func TestUpdateSnapshotDoesNotForceHTTP2ForNonGRPCPorts(t *testing.T) {
 	require.True(t, ok)
 
 	clusters := concreteSnapshot.GetResources(resource.ClusterType)
-	rawCluster, ok := clusters["gateway_4318"]
-	require.True(t, ok, "gateway_4318 cluster not found")
+	rawCluster, ok := clusters["mdai_gateway_4318"]
+	require.True(t, ok, "mdai_gateway_4318 cluster not found")
 	c, ok := rawCluster.(*cluster.Cluster)
 	require.True(t, ok)
 
