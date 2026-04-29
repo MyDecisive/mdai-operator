@@ -50,3 +50,6 @@ resources:
 - mdaiingress_admin_role.yaml
 - mdaiingress_editor_role.yaml
 - mdaiingress_viewer_role.yaml
+- telemetryvalidation_admin_role.yaml
+- telemetryvalidation_editor_role.yaml
+- telemetryvalidation_viewer_role.yaml

@@ -36,6 +36,10 @@ func (c *FakeHubV1) MdaiReplays(namespace string) v1.MdaiReplayInterface {
 	return newFakeMdaiReplays(c, namespace)
 }
 
+func (c *FakeHubV1) TelemetryValidations(namespace string) v1.TelemetryValidationInterface {
+	return newFakeTelemetryValidations(c, namespace)
+}
+
 // RESTClient returns a RESTClient that is used to communicate
 // with API server by this client implementation.
 func (c *FakeHubV1) RESTClient() rest.Interface {

@@ -1,6 +1,6 @@
 # mdai-operator
 
-![Version: 0.2.12](https://img.shields.io/badge/Version-0.2.12-informational?style=flat-square) ![Type: application](https://img.shields.io/badge/Type-application-informational?style=flat-square) ![AppVersion: 0.2.12](https://img.shields.io/badge/AppVersion-0.2.12-informational?style=flat-square)
+![Version: 0.2.13](https://img.shields.io/badge/Version-0.2.13-informational?style=flat-square) ![Type: application](https://img.shields.io/badge/Type-application-informational?style=flat-square) ![AppVersion: 0.2.13](https://img.shields.io/badge/AppVersion-0.2.13-informational?style=flat-square)
 
 MDAI Operator Helm Chart
 
@@ -33,8 +33,8 @@ MDAI Operator Helm Chart
 | controllerManager.manager.env.otelSdkDisabled | string | `"false"` |  |
 | controllerManager.manager.env.useConsoleLogEncoder | string | `"false"` |  |
 | controllerManager.manager.env.valkeyAuditStreamExpiryMs | string | `"2592000000"` |  |
-| controllerManager.manager.image.repository | string | `"public.ecr.aws/p3k6k6h3/mdai-operator"` |  |
-| controllerManager.manager.image.tag | string | `"0.2.12"` |  |
+| controllerManager.manager.image.repository | string | `"ghcr.io/mydecisive/mdai-operator"` |  |
+| controllerManager.manager.image.tag | string | `"0.2.13"` |  |
 | controllerManager.manager.resources.limits.cpu | string | `"500m"` |  |
 | controllerManager.manager.resources.limits.memory | string | `"128Mi"` |  |
 | controllerManager.manager.resources.requests.cpu | string | `"10m"` |  |
@@ -45,7 +45,7 @@ MDAI Operator Helm Chart
 | controllerManager.replicas | int | `1` |  |
 | controllerManager.tolerations | list | `[]` |  |
 | controllerManager.topologySpreadConstraints | list | `[]` |  |
-| crds.create | bool | `true` |  |
+| crds.enabled | bool | `true` |  |
 | kubernetesClusterDomain | string | `"cluster.local"` |  |
 | metricsService.ports[0].name | string | `"https"` |  |
 | metricsService.ports[0].port | int | `8443` |  |
@@ -60,3 +60,4 @@ MDAI Operator Helm Chart
 | webhookService.ports[0].protocol | string | `"TCP"` |  |
 | webhookService.ports[0].targetPort | int | `9443` |  |
 | webhookService.type | string | `"ClusterIP"` |  |
+| xdsService.type | string | `"ClusterIP"` |  |

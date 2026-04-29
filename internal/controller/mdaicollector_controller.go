@@ -8,10 +8,11 @@ import (
 	"k8s.io/client-go/tools/record"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	mdaiv1 "github.com/mydecisive/mdai-operator/api/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	ctrl "sigs.k8s.io/controller-runtime"
 	logger "sigs.k8s.io/controller-runtime/pkg/log"
+
+	mdaiv1 "github.com/mydecisive/mdai-operator/api/v1"
 )
 
 var _ Controller = (*MdaiCollectorReconciler)(nil)
@@ -37,22 +38,12 @@ type MdaiCollectorReconciler struct {
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
-// TODO(user): Modify the Reconcile function to compare the state specified by
-// the MdaiCollector object against the actual cluster state, and then
-// perform operations to make the cluster state reflect the state specified by
-// the user.
-//
-// For more details, check Reconcile and its Result here:
-// - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.20.4/pkg/reconcile
 func (r *MdaiCollectorReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := logger.FromContext(ctx)
 	log.Info("-- Starting MdaiCollector reconciliation --", "namespace", req.NamespacedName, "name", req.Name)
 
 	fetchedCR := &mdaiv1.MdaiCollector{}
 	if err := r.Get(ctx, req.NamespacedName, fetchedCR); err != nil {
-		// we'll ignore not-found errors, since they can't be fixed by an immediate
-		// requeue (we'll need to wait for a new notification), and we can get them
-		// on deleted requests.
 		if !apierrors.IsNotFound(err) {
 			log.Error(err, "unable to fetch MdaiCollector CR:"+req.Namespace+" : "+req.Name)
 		}
@@ -83,17 +74,7 @@ func (*MdaiCollectorReconciler) ReconcileHandler(ctx context.Context, adapter Ad
 		mdaiCollectorAdapter.ensureSynchronized,
 		mdaiCollectorAdapter.ensureStatusSetToDone,
 	}
-	for _, operation := range operations {
-		result, err := operation(ctx)
-		if err != nil || result.RequeueRequest {
-			return ctrl.Result{RequeueAfter: result.RequeueDelay}, err
-		}
-		if result.CancelRequest {
-			return ctrl.Result{}, nil
-		}
-	}
-
-	return ctrl.Result{}, nil
+	return RunReconcileOperations(ctx, operations)
 }
 
 // SetupWithManager sets up the controller with the Manager.

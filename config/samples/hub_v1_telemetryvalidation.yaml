@@ -1,0 +1,20 @@
+apiVersion: hub.mydecisive.ai/v1
+kind: TelemetryValidation
+metadata:
+  name: sample-telemetryvalidation
+spec:
+  enabled: true
+  collectorRef:
+    name: gateway
+  signals:
+    - metrics
+    - logs
+    - traces
+  shadowDebugExporterEnabled: false
+  validator:
+    image: ghcr.io/mydecisive/mdai-fidelity-validator:0.1.0
+    port: 18081
+    rulesYAML: |
+      rules: []
+    fieldMappingYAML: |
+      mappings: []

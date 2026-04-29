@@ -20,6 +20,8 @@ type Interface interface {
 	MdaiObservers() MdaiObserverInformer
 	// MdaiReplays returns a MdaiReplayInformer.
 	MdaiReplays() MdaiReplayInformer
+	// TelemetryValidations returns a TelemetryValidationInformer.
+	TelemetryValidations() TelemetryValidationInformer
 }
 
 type version struct {
@@ -61,4 +63,9 @@ func (v *version) MdaiObservers() MdaiObserverInformer {
 // MdaiReplays returns a MdaiReplayInformer.
 func (v *version) MdaiReplays() MdaiReplayInformer {
 	return &mdaiReplayInformer{factory: v.factory, namespace: v.namespace, tweakListOptions: v.tweakListOptions}
+}
+
+// TelemetryValidations returns a TelemetryValidationInformer.
+func (v *version) TelemetryValidations() TelemetryValidationInformer {
+	return &telemetryValidationInformer{factory: v.factory, namespace: v.namespace, tweakListOptions: v.tweakListOptions}
 }

@@ -1,24 +1,24 @@
 controllerManager:
   manager:
     args:
-    - --metrics-bind-address=:8443
-    - --leader-elect=false
-    - --health-probe-bind-address=:8081
-    - --metrics-cert-path=/tmp/k8s-metrics-server/metrics-certs
-    - --webhook-cert-path=/tmp/k8s-webhook-server/serving-certs
+      - --metrics-bind-address=:8443
+      - --leader-elect=false
+      - --health-probe-bind-address=:8081
+      - --metrics-cert-path=/tmp/k8s-metrics-server/metrics-certs
+      - --webhook-cert-path=/tmp/k8s-webhook-server/serving-certs
     containerSecurityContext:
       allowPrivilegeEscalation: false
       capabilities:
         drop:
-        - ALL
+          - ALL
     env:
       otelExporterOtlpEndpoint: http://hub-monitor-mdai-collector-service.mdai.svc.cluster.local:4318
       otelSdkDisabled: "false"
       useConsoleLogEncoder: "false"
       valkeyAuditStreamExpiryMs: "2592000000"
     image:
-      repository: public.ecr.aws/p3k6k6h3/mdai-operator
-      tag: 0.2.12
+      repository: ghcr.io/mydecisive/mdai-operator
+      tag: 0.2.13
     resources:
       limits:
         cpu: 500m
@@ -34,13 +34,15 @@ controllerManager:
   replicas: 1
   tolerations: []
   topologySpreadConstraints: []
+crds:
+  enabled: true
 kubernetesClusterDomain: cluster.local
 metricsService:
   ports:
-  - name: https
-    port: 8443
-    protocol: TCP
-    targetPort: 8443
+    - name: https
+      port: 8443
+      protocol: TCP
+      targetPort: 8443
   type: ClusterIP
 serviceAccount:
   annotations: {}
@@ -49,9 +51,9 @@ serviceAccount:
   name: ""
 webhookService:
   ports:
-  - port: 443
-    protocol: TCP
-    targetPort: 9443
+    - port: 443
+      protocol: TCP
+      targetPort: 9443
   type: ClusterIP
 admissionWebhooks:
   create: true
@@ -73,6 +75,3 @@ admissionWebhooks:
   certFile: ""
   keyFile: ""
   caFile: ""
-
-crds:
-  create: true

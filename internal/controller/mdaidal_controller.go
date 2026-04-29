@@ -4,12 +4,13 @@ import (
 	"context"
 	"fmt"
 
+	"k8s.io/apimachinery/pkg/runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 	logger "sigs.k8s.io/controller-runtime/pkg/log"
 
 	mdaiv1 "github.com/mydecisive/mdai-operator/api/v1"
@@ -72,17 +73,7 @@ func (*MdaiDalReconciler) ReconcileHandler(ctx context.Context, adapter Adapter)
 		mdaiDalAdapter.ensureSynchronized,
 		mdaiDalAdapter.ensureStatusSetToDone,
 	}
-	for _, operation := range operations {
-		result, err := operation(ctx)
-		if err != nil || result.RequeueRequest {
-			return ctrl.Result{RequeueAfter: result.RequeueDelay}, err
-		}
-		if result.CancelRequest {
-			return ctrl.Result{}, nil
-		}
-	}
-
-	return ctrl.Result{}, nil
+	return RunReconcileOperations(ctx, operations)
 }
 
 // SetupWithManager sets up the controller with the Manager.

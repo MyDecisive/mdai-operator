@@ -1,0 +1,27 @@
+signals:
+  metrics:
+    required_attributes:
+      - metric_name
+      - point_timestamp
+      - point_value
+      - service
+      - env
+  traces:
+    required_attributes:
+      - env
+      - service
+      - operation_name
+      - resource_name
+      - trace_id
+  logs:
+    required_attributes:
+      - name: ddsource
+        compare: presence_only
+#      - ddtags
+      - name: hostname
+        compare: presence_only
+      - service
+      - message
+      - status
+      - name: timestamp
+        compare: presence_only

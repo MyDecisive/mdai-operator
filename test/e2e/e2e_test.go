@@ -399,6 +399,47 @@ var _ = Describe("Manager", Ordered, func() {
 			Eventually(verifyMdaiHub).Should(Succeed())
 		})
 
+		It("can reconcile a TelemetryValidation CR", func() {
+			By("applying a TelemetryValidation CR")
+			verifyTV := func(g Gomega) {
+				cmd := exec.Command("kubectl", "apply", "-f", "test/e2e/testdata/telemetryvalidation.yaml", "-n", otelNamespace)
+				_, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+			}
+			Eventually(verifyTV).Should(Succeed())
+		})
+
+		It("deploys the TV shadow collector and fidelity validator", func() {
+			By("verifying the shadow OTel collector is created")
+			verifyShadow := func(g Gomega) {
+				cmd := exec.Command("kubectl", "get", "opentelemetrycollector", "gateway-shadow",
+					"-n", otelNamespace)
+				_, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+			}
+			Eventually(verifyShadow, "2m", "5s").Should(Succeed())
+
+			By("verifying the fidelity validator deployment is created")
+			verifyValidator := func(g Gomega) {
+				cmd := exec.Command("kubectl", "get", "deployment", "gateway-tv-fidelity-validator",
+					"-n", otelNamespace)
+				_, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+			}
+			Eventually(verifyValidator, "2m", "5s").Should(Succeed())
+
+			By("verifying the TelemetryValidation CR reaches Ready status")
+			verifyTVReady := func(g Gomega) {
+				cmd := exec.Command("kubectl", "get", "telemetryvalidation", "gateway-tv",
+					"-n", otelNamespace,
+					"-o", "jsonpath={.status.conditions[?(@.type=='Available')].status}")
+				out, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(out).To(ContainSubstring("True"))
+			}
+			Eventually(verifyTVReady, "2m", "5s").Should(Succeed())
+		})
+
 		It("has the MdaiHub CR in Ready state", func() {
 			verifyStatus := func(g Gomega) {
 				cmd := exec.Command("kubectl", "get", "mdaihub", "mdaihub-sample", "-n", namespace,
@@ -569,8 +610,8 @@ var _ = Describe("Manager", Ordered, func() {
 				out, err := utils.Run(cmd)
 				g.Expect(err).NotTo(HaveOccurred())
 
-				podNames := strings.Fields(out)
-				for _, pod := range podNames {
+				podNames := strings.FieldsSeq(out)
+				for pod := range podNames {
 					if pod == "" {
 						continue
 					}
@@ -656,8 +697,8 @@ var _ = Describe("Manager", Ordered, func() {
 				out, err := utils.Run(cmd)
 				g.Expect(err).NotTo(HaveOccurred())
 
-				podNames := strings.Fields(out)
-				for _, pod := range podNames {
+				podNames := strings.FieldsSeq(out)
+				for pod := range podNames {
 					if pod == "" {
 						continue
 					}
@@ -768,8 +809,8 @@ var _ = Describe("Manager", Ordered, func() {
 				out, err := utils.Run(cmd)
 				g.Expect(err).NotTo(HaveOccurred())
 
-				podNames := strings.Fields(out)
-				for _, pod := range podNames {
+				podNames := strings.FieldsSeq(out)
+				for pod := range podNames {
 					if pod == "" {
 						continue
 					}
@@ -1123,6 +1164,34 @@ metadata:
 			}
 
 			Eventually(verifyObserverDeleted, "30s", "3s").Should(Succeed(), "expected all mdai dal pods to be deleted")
+		})
+
+		It("can delete a TelemetryValidation CR and clean up resources", func() {
+			By("deleting the TelemetryValidation CR")
+			verifyTVDelete := func(g Gomega) {
+				cmd := exec.Command("kubectl", "delete", "-f", "test/e2e/testdata/telemetryvalidation.yaml", "-n", otelNamespace)
+				_, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+			}
+			Eventually(verifyTVDelete).Should(Succeed())
+
+			By("verifying the shadow OTel collector is deleted")
+			verifyShadowGone := func(g Gomega) {
+				cmd := exec.Command("kubectl", "get", "opentelemetrycollector", "gateway-shadow",
+					"-n", otelNamespace)
+				out, err := utils.Run(cmd)
+				g.Expect(err).To(HaveOccurred(), "expected shadow collector to be gone, got: %s", out)
+			}
+			Eventually(verifyShadowGone, "1m", "5s").Should(Succeed())
+
+			By("verifying the fidelity validator deployment is deleted")
+			verifyValidatorGone := func(g Gomega) {
+				cmd := exec.Command("kubectl", "get", "deployment", "gateway-tv-fidelity-validator",
+					"-n", otelNamespace)
+				out, err := utils.Run(cmd)
+				g.Expect(err).To(HaveOccurred(), "expected validator deployment to be gone, got: %s", out)
+			}
+			Eventually(verifyValidatorGone, "1m", "5s").Should(Succeed())
 		})
 
 		It("can delete OTEL CRs", func() {

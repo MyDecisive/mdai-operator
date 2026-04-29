@@ -49,3 +49,11 @@ type MdaiReplayListerExpansion interface{}
 // MdaiReplayNamespaceListerExpansion allows custom methods to be added to
 // MdaiReplayNamespaceLister.
 type MdaiReplayNamespaceListerExpansion interface{}
+
+// TelemetryValidationListerExpansion allows custom methods to be added to
+// TelemetryValidationLister.
+type TelemetryValidationListerExpansion interface{}
+
+// TelemetryValidationNamespaceListerExpansion allows custom methods to be added to
+// TelemetryValidationNamespaceLister.
+type TelemetryValidationNamespaceListerExpansion interface{}

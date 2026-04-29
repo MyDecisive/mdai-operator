@@ -93,6 +93,7 @@ rules:
   - mdaiingresses
   - mdaiobservers
   - mdaireplays
+  - telemetryvalidations
   verbs:
   - create
   - delete
@@ -110,6 +111,7 @@ rules:
   - mdaiingresses/finalizers
   - mdaiobservers/finalizers
   - mdaireplays/finalizers
+  - telemetryvalidations/finalizers
   verbs:
   - update
 - apiGroups:
@@ -121,6 +123,7 @@ rules:
   - mdaiingresses/status
   - mdaiobservers/status
   - mdaireplays/status
+  - telemetryvalidations/status
   verbs:
   - get
   - patch
@@ -129,6 +132,7 @@ rules:
   - monitoring.coreos.com
   resources:
   - prometheusrules
+  - servicemonitors
   verbs:
   - create
   - delete
@@ -154,6 +158,8 @@ rules:
   resources:
   - opentelemetrycollectors
   verbs:
+  - create
+  - delete
   - get
   - list
   - patch

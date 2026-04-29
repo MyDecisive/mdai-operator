@@ -11,4 +11,5 @@ resources:
 - hub_v1_mdaiingress.yaml
 - hub_v1_mdaireplay.yaml
 - hub_v1_mdaidal.yaml
+- hub_v1_telemetryvalidation.yaml
 # +kubebuilder:scaffold:manifestskustomizesamples

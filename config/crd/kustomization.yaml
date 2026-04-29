@@ -8,6 +8,7 @@ resources:
 - bases/hub.mydecisive.ai_mdaiingresses.yaml
 - bases/hub.mydecisive.ai_mdaireplays.yaml
 - bases/hub.mydecisive.ai_mdaidals.yaml
+- bases/hub.mydecisive.ai_telemetryvalidations.yaml
 # +kubebuilder:scaffold:crdkustomizeresource
 
 patches:

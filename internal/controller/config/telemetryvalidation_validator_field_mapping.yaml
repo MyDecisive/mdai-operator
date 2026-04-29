@@ -1,0 +1,98 @@
+signals:
+  logs:
+    message:
+      - message
+      - "[0].message|json:message"
+      - "[0].message"
+    service:
+      - service
+      - "[0].service"
+      - "[0].message|json:service"
+    timestamp:
+      - timestamp
+      - "[0].timestamp"
+      - "[0].message|json:timestamp"
+    status:
+      - status
+      - "[0].status"
+      - "[0].message|json:status"
+    hostname:
+      - hostname
+      - "[0].hostname"
+      - "[0].message|json:hostname"
+    ddsource:
+      - ddsource
+      - "[0].ddsource"
+      - "[0].message|json:ddsource"
+    correlation_id:
+      - correlation_id
+      - "[0].message|json:correlation_id"
+      - "[0].ddtags|tag:correlation_id"
+      - "ddtags|tag:correlation_id"
+  traces:
+    correlation_id:
+      - correlation_id
+      - "suffix:.correlation_id"
+      - "suffix:.meta.correlation_id"
+      - "suffix:.ddtags|tag:correlation_id"
+      - "contains:.tags[|tag:correlation_id"
+    env:
+      - env
+      - "suffix:.env"
+    trace_id:
+      - trace_id
+      - "suffix:.trace_id"
+      - "suffix:.traceID"
+    span_id:
+      - span_id
+      - "suffix:.span_id"
+      - "suffix:.spanID"
+    service:
+      - service
+      - "suffix:.service"
+    operation_name:
+      - operation_name
+      - "suffix:.operation_name"
+      - "suffix:.name"
+      - "suffix:.operation"
+    resource_name:
+      - resource_name
+      - "suffix:.resource_name"
+      - "suffix:.resource"
+    status:
+      - status
+      - "suffix:.status"
+    ingestion_reason:
+      - ingestion_reason
+      - "suffix:.ingestion_reason"
+  metrics:
+    metric_name:
+      - metric_name
+      - "suffix:.metric"
+    point_timestamp:
+      - point_timestamp
+      - "suffix:][0]"
+      - "suffix:.timestamp"
+    point_value:
+      - point_value
+      - "suffix:][1]"
+      - "suffix:.value"
+    service:
+      - service
+      - "contains:.tags[|tag:service"
+    env:
+      - env
+      - "contains:.tags[|tag:env"
+    correlation_id:
+      - correlation_id
+      - "contains:.tags[|tag:correlation_id"
+exporters:
+  datadog:
+    signals:
+      traces:
+        operation_name:
+          - "suffix:.resource"
+          - "suffix:.name"
+        resource_name:
+          - "suffix:.meta.dd.span.Resource"
+          - "suffix:.resource"
