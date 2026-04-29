@@ -72,6 +72,11 @@ spec:
                   - matchExporterPrefixes
                   type: object
                 type: array
+              runID:
+                description: |-
+                  RunID identifies a run of the TelemetryValidation. When omitted, the controller generates one and records it in
+                  status.runID.
+                type: string
               shadowDebugExporterEnabled:
                 type: boolean
               signals:
@@ -172,6 +177,8 @@ spec:
               observedGeneration:
                 format: int64
                 type: integer
+              runID:
+                type: string
               shadowCollectorName:
                 type: string
               shadowServiceName:

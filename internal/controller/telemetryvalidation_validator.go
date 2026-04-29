@@ -25,6 +25,7 @@ import (
 func (r *TelemetryValidationReconciler) reconcileValidator(
 	ctx context.Context,
 	validation *hubv1.TelemetryValidation,
+	runID string,
 ) (string, string, string, int32, error) {
 	if !validation.Spec.Enabled {
 		if err := r.deleteManagedValidatorResources(ctx, validation); err != nil {
@@ -60,6 +61,9 @@ func (r *TelemetryValidationReconciler) reconcileValidator(
 			telemetryValidationLabelKey: validation.Name,
 			"hub.mydecisive.ai/role":    telemetryValidationRoleValidator,
 		}
+		cfgMap.Annotations = map[string]string{
+			telemetryValidationRunIDAnnotationKey: runID,
+		}
 		cfgMap.Data = map[string]string{
 			"rules.yaml":         validatorRulesYAML,
 			"field-mapping.yaml": validatorFieldMappingYAML,
@@ -84,6 +88,9 @@ func (r *TelemetryValidationReconciler) reconcileValidator(
 			LabelManagedByMdaiKey:       LabelManagedByMdaiValue,
 			telemetryValidationLabelKey: validation.Name,
 			"hub.mydecisive.ai/role":    telemetryValidationRoleValidator,
+		}
+		service.Annotations = map[string]string{
+			telemetryValidationRunIDAnnotationKey: runID,
 		}
 		service.Spec = corev1.ServiceSpec{
 			Selector: map[string]string{
@@ -124,11 +131,15 @@ func (r *TelemetryValidationReconciler) reconcileValidator(
 			return err
 		}
 
-		mdaiConnectionSourceLabel := prometheusv1.LabelName("__meta_kubernetes_service_label_hub_mydecisive_ai_telemetry_validation")
+		mdaiConnectionSourceLabel := prometheusv1.LabelName(telemetryValidationPrometheusSourceLabel)
+		runIDSourceLabel := prometheusv1.LabelName(telemetryValidationRunIDPrometheusSource)
 		monitor.Labels = map[string]string{
 			LabelManagedByMdaiKey:       LabelManagedByMdaiValue,
 			telemetryValidationLabelKey: validation.Name,
 			"hub.mydecisive.ai/role":    telemetryValidationRoleValidator,
+		}
+		monitor.Annotations = map[string]string{
+			telemetryValidationRunIDAnnotationKey: runID,
 		}
 		monitor.Spec = prometheusv1.ServiceMonitorSpec{
 			Selector: metav1.LabelSelector{
@@ -149,6 +160,11 @@ func (r *TelemetryValidationReconciler) reconcileValidator(
 						{
 							SourceLabels: []prometheusv1.LabelName{mdaiConnectionSourceLabel},
 							TargetLabel:  "mdai_connection",
+							Action:       "replace",
+						},
+						{
+							SourceLabels: []prometheusv1.LabelName{runIDSourceLabel},
+							TargetLabel:  telemetryValidationRunIDMetricLabel,
 							Action:       "replace",
 						},
 					},
@@ -179,6 +195,9 @@ func (r *TelemetryValidationReconciler) reconcileValidator(
 			"app.kubernetes.io/instance": validation.Name,
 		}
 		deployment.Labels = labels
+		deployment.Annotations = map[string]string{
+			telemetryValidationRunIDAnnotationKey: runID,
+		}
 		deployment.Spec = appsv1.DeploymentSpec{
 			Replicas: &validatorReplicas,
 			Selector: &metav1.LabelSelector{
@@ -190,6 +209,9 @@ func (r *TelemetryValidationReconciler) reconcileValidator(
 			Template: corev1.PodTemplateSpec{
 				ObjectMeta: metav1.ObjectMeta{
 					Labels: labels,
+					Annotations: map[string]string{
+						telemetryValidationRunIDAnnotationKey: runID,
+					},
 				},
 				Spec: corev1.PodSpec{
 					Containers: []corev1.Container{
@@ -250,10 +272,19 @@ func (r *TelemetryValidationReconciler) reconcileValidator(
 	}
 
 	//nolint:revive // in-cluster validator endpoint is HTTP by design.
-	return validatorName, validatorServiceName, fmt.Sprintf("http://%s.%s.svc.cluster.local:%d", validatorServiceName, validation.Namespace, validatorPort), validatorIngressPort, nil
+	validatorEndpoint := fmt.Sprintf(
+		"http://%s.%s.svc.cluster.local:%d",
+		validatorServiceName,
+		validation.Namespace,
+		validatorPort,
+	)
+	return validatorName, validatorServiceName, validatorEndpoint, validatorIngressPort, nil
 }
 
-func (r *TelemetryValidationReconciler) deleteManagedValidatorResources(ctx context.Context, validation *hubv1.TelemetryValidation) error {
+func (r *TelemetryValidationReconciler) deleteManagedValidatorResources(
+	ctx context.Context,
+	validation *hubv1.TelemetryValidation,
+) error {
 	name := validatorNameForTV(validation.Name)
 	configName := validatorConfigMapNameForTV(validation.Name)
 	monitorName := validatorMetricsMonitorNameForTV(validation.Name)
@@ -319,7 +350,10 @@ func resolveValidatorConfigYAMLs(validation *hubv1.TelemetryValidation) (string,
 	return rulesYAML, fieldMappingYAML
 }
 
-func (r *TelemetryValidationReconciler) resolveValidatorIngressPorts(ctx context.Context, validation *hubv1.TelemetryValidation) (int32, []int32, error) {
+func (r *TelemetryValidationReconciler) resolveValidatorIngressPorts(
+	ctx context.Context,
+	validation *hubv1.TelemetryValidation,
+) (int32, []int32, error) {
 	sourceName := strings.TrimSpace(validation.Spec.CollectorRef.Name)
 	if sourceName == "" {
 		return defaultValidatorReceiverPort, []int32{defaultValidatorReceiverPort}, nil

@@ -23,7 +23,7 @@ GO := CGO_ENABLED=0 GOTOOLCHAIN=$(GOTOOLCHAIN) go
 GO_TEST := $(GO) test -count=1
 
 # Image URL to use all building/pushing image targets
-IMG ?= public.ecr.aws/decisiveai/mdai-operator:${VERSION}
+IMG ?= ghcr.io/mydecisive/mdai-operator:${VERSION}
 
 CHART_PATH := deployment
 

@@ -22,6 +22,7 @@ func (r *TelemetryValidationReconciler) reconcileShadowCollector(
 	validatorServiceName string,
 	resolvedValidatorEndpoint string,
 	validatorIngressPortStatus int32,
+	runID string,
 ) (OperationResult, error) {
 	log := logger.FromContext(ctx)
 
@@ -36,7 +37,14 @@ func (r *TelemetryValidationReconciler) reconcileShadowCollector(
 
 		metaCopy := validation.DeepCopy()
 		metaCopy.Status.ObservedGeneration = validation.Generation
-		setValidationCondition(&metaCopy.Status.Conditions, validation.Generation, metav1.ConditionFalse, "CollectorNotFound", fmt.Sprintf("Referenced collector %q not found", sourceName))
+		metaCopy.Status.RunID = runID
+		setValidationCondition(
+			&metaCopy.Status.Conditions,
+			validation.Generation,
+			metav1.ConditionFalse,
+			"CollectorNotFound",
+			fmt.Sprintf("Referenced collector %q not found", sourceName),
+		)
 		if statusErr := r.Status().Update(ctx, metaCopy); statusErr != nil {
 			return ContinueWithError(statusErr)
 		}
@@ -62,8 +70,15 @@ func (r *TelemetryValidationReconciler) reconcileShadowCollector(
 		metaCopy.Status.ValidatorEndpoint = resolvedValidatorEndpoint
 		metaCopy.Status.ValidatorIngressPort = validatorIngressPortStatus
 		metaCopy.Status.ObservedGeneration = validation.Generation
+		metaCopy.Status.RunID = runID
 		metaCopy.Status.ActiveSignals = activeSignals(validation.Spec.Signals)
-		setValidationCondition(&metaCopy.Status.Conditions, validation.Generation, metav1.ConditionFalse, "Disabled", "Telemetry validation shadow collector is disabled")
+		setValidationCondition(
+			&metaCopy.Status.Conditions,
+			validation.Generation,
+			metav1.ConditionFalse,
+			"Disabled",
+			"Telemetry validation shadow collector is disabled",
+		)
 		if err := r.Status().Update(ctx, metaCopy); err != nil {
 			return ContinueWithError(err)
 		}
@@ -90,7 +105,8 @@ func (r *TelemetryValidationReconciler) reconcileShadowCollector(
 			"hub.mydecisive.ai/shadow":  "true",
 		})
 		shadow.Annotations = mergeMaps(source.Annotations, map[string]string{
-			"hub.mydecisive.ai/shadow": "true",
+			"hub.mydecisive.ai/shadow":            "true",
+			telemetryValidationRunIDAnnotationKey: runID,
 		})
 
 		spec := *source.Spec.DeepCopy()
@@ -119,8 +135,15 @@ func (r *TelemetryValidationReconciler) reconcileShadowCollector(
 	metaCopy.Status.ValidatorEndpoint = resolvedValidatorEndpoint
 	metaCopy.Status.ValidatorIngressPort = validatorIngressPortStatus
 	metaCopy.Status.ObservedGeneration = validation.Generation
+	metaCopy.Status.RunID = runID
 	metaCopy.Status.ActiveSignals = activeSignals(validation.Spec.Signals)
-	setValidationCondition(&metaCopy.Status.Conditions, validation.Generation, metav1.ConditionTrue, "Ready", "Telemetry validation shadow collector is configured")
+	setValidationCondition(
+		&metaCopy.Status.Conditions,
+		validation.Generation,
+		metav1.ConditionTrue,
+		"Ready",
+		"Telemetry validation shadow collector is configured",
+	)
 	if err := r.Status().Update(ctx, metaCopy); err != nil {
 		return ContinueWithError(err)
 	}

@@ -25,6 +25,7 @@ type TelemetryValidationAdapter struct {
 	validatorServiceName       string
 	resolvedValidatorEndpoint  string
 	validatorIngressPortStatus int32
+	resolvedRunID              string
 }
 
 func NewTelemetryValidationAdapter(
@@ -63,8 +64,33 @@ func (*TelemetryValidationAdapter) ensureStatusSetToDone(context.Context) (Opera
 	return ContinueProcessing()
 }
 
+func (c *TelemetryValidationAdapter) ensureRunIDResolved(ctx context.Context) (OperationResult, error) {
+	runID, shouldUpdateStatus, err := resolveTelemetryValidationRunID(c.validation)
+	if err != nil {
+		return ContinueWithError(err)
+	}
+	c.resolvedRunID = runID
+	c.validation.Status.RunID = runID
+
+	if !shouldUpdateStatus {
+		return ContinueProcessing()
+	}
+
+	metaCopy := c.validation.DeepCopy()
+	metaCopy.Status.RunID = runID
+	if err := c.reconciler.Status().Update(ctx, metaCopy); err != nil {
+		return ContinueWithError(err)
+	}
+	c.validation = metaCopy
+	return ContinueProcessing()
+}
+
 func (c *TelemetryValidationAdapter) ensureSynchronized(ctx context.Context) (OperationResult, error) {
-	validatorName, validatorServiceName, resolvedValidatorEndpoint, validatorIngressPort, err := c.reconciler.reconcileValidator(ctx, c.validation)
+	validatorName, validatorServiceName, resolvedValidatorEndpoint, validatorIngressPort, err := c.reconciler.reconcileValidator(
+		ctx,
+		c.validation,
+		c.resolvedRunID,
+	)
 	if err != nil {
 		return ContinueWithError(err)
 	}
@@ -81,6 +107,7 @@ func (c *TelemetryValidationAdapter) ensureSynchronized(ctx context.Context) (Op
 		c.validatorServiceName,
 		c.resolvedValidatorEndpoint,
 		c.validatorIngressPortStatus,
+		c.resolvedRunID,
 	)
 }
 
