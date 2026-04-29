@@ -135,7 +135,7 @@ func (m *Manager) UpdateSnapshot(ctx context.Context, nodeID string, collectors 
 
 		for _, cp := range cpList {
 			// Cluster name is based on the service it forwards to
-			clusterName := fmt.Sprintf("%s_%d", cp.name, cp.port)
+			clusterName := fmt.Sprintf("%s_%s_%d", cp.ns, cp.name, cp.port)
 			appendCluster(&clusters, seenClusters, newDNSCluster(clusterName, cp.svc, cp.port, protocolOptionsForCollectorPort(cp, upstreamProtocolOptionsAny)))
 
 			mirrorTargets := validationTargetsForCollectorPort(log, cp, port, validations)
@@ -155,7 +155,7 @@ func (m *Manager) UpdateSnapshot(ctx context.Context, nodeID string, collectors 
 			}
 
 			vHost := &route.VirtualHost{
-				Name: fmt.Sprintf("vhost_%s_%d", cp.name, cp.port),
+				Name: fmt.Sprintf("vhost_%s_%s_%d", cp.ns, cp.name, cp.port),
 				Domains: []string{
 					cp.name + ".mdai.hub",
 					fmt.Sprintf("%s:%d", cp.name, cp.port),
@@ -168,10 +168,10 @@ func (m *Manager) UpdateSnapshot(ctx context.Context, nodeID string, collectors 
 		}
 
 		if len(cpList) == 1 {
-			clusterName := fmt.Sprintf("%s_%d", cpList[0].name, cpList[0].port)
+			clusterName := fmt.Sprintf("%s_%s_%d", cpList[0].ns, cpList[0].name, cpList[0].port)
 			mirrorTargets := validationTargetsForCollectorPort(log, cpList[0], port, validations)
 			virtualHosts = append(virtualHosts, &route.VirtualHost{
-				Name:    fmt.Sprintf("vhost_%s_%d_default", cpList[0].name, cpList[0].port),
+				Name:    fmt.Sprintf("vhost_%s_%s_%d_default", cpList[0].ns, cpList[0].name, cpList[0].port),
 				Domains: []string{"*"},
 				Routes:  []*route.Route{buildRoute(clusterName, mirrorTargets)},
 			})
