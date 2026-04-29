@@ -175,8 +175,8 @@ func generateTelemetryValidationRunID() (string, error) {
 		return "", fmt.Errorf("generate telemetry validation run id: %w", err)
 	}
 
-	b[6] = (b[6] & 0x0f) | 0x40
-	b[8] = (b[8] & 0x3f) | 0x80
+	b[6] = (b[6] & 0x0f) | 0x40 //nolint:mnd
+	b[8] = (b[8] & 0x3f) | 0x80 //nolint:mnd
 	return fmt.Sprintf(
 		"%08x-%04x-%04x-%04x-%012x",
 		b[0:4],
