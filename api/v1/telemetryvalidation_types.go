@@ -57,6 +57,11 @@ type TelemetryValidationSpec struct {
 	// +kubebuilder:default:=true
 	Enabled bool `json:"enabled,omitempty"`
 
+	// RunID identifies a run of the TelemetryValidation. When omitted, the controller generates one and records it in
+	// status.runID.
+	// +optional
+	RunID string `json:"runID,omitempty"`
+
 	CollectorRef TelemetryValidationCollectorRef `json:"collectorRef"`
 
 	// +optional
@@ -82,6 +87,7 @@ type TelemetryValidationStatus struct {
 	ValidatorEndpoint    string `json:"validatorEndpoint,omitempty"`
 	ValidatorIngressPort int32  `json:"validatorIngressPort,omitempty"`
 	ObservedGeneration   int64  `json:"observedGeneration,omitempty"`
+	RunID                string `json:"runID,omitempty"`
 
 	// +optional
 	ActiveSignals []TelemetrySignal `json:"activeSignals,omitempty"`

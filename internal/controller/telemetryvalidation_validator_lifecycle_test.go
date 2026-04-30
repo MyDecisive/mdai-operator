@@ -78,7 +78,7 @@ func TestReconcileValidatorLifecycle(t *testing.T) {
 	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(tv, collector).Build()
 	r := &TelemetryValidationReconciler{Client: c, Scheme: scheme}
 
-	validatorName, validatorService, validatorEndpoint, _, err := r.reconcileValidator(context.Background(), tv)
+	validatorName, validatorService, validatorEndpoint, _, err := r.reconcileValidator(context.Background(), tv, "run-123")
 	require.NoError(t, err)
 	assert.Equal(t, "sample-fidelity-validator", validatorName)
 	assert.Equal(t, "sample-fidelity-validator", validatorService)
@@ -88,10 +88,12 @@ func TestReconcileValidatorLifecycle(t *testing.T) {
 	assertObjectExists(t, c, cfg, types.NamespacedName{Name: "sample-fidelity-validator-config", Namespace: "mdai"})
 	assert.Equal(t, telemetryValidationRoleValidator, cfg.Labels["hub.mydecisive.ai/role"])
 	assert.Equal(t, "sample", cfg.Labels[telemetryValidationLabelKey])
+	assert.Equal(t, "run-123", cfg.Annotations[telemetryValidationRunIDAnnotationKey])
 	svc := &corev1.Service{}
 	assertObjectExists(t, c, svc, types.NamespacedName{Name: "sample-fidelity-validator", Namespace: "mdai"})
 	assert.Equal(t, telemetryValidationRoleValidator, svc.Labels["hub.mydecisive.ai/role"])
 	assert.Equal(t, "sample", svc.Labels[telemetryValidationLabelKey])
+	assert.Equal(t, "run-123", svc.Annotations[telemetryValidationRunIDAnnotationKey])
 	assertServicePort(t, svc.Spec.Ports, "receiver-18126", 18126)
 	assertServicePort(t, svc.Spec.Ports, "receiver-4317", 4317)
 	assertServicePort(t, svc.Spec.Ports, "exporter-intake", 19081)
@@ -104,10 +106,22 @@ func TestReconcileValidatorLifecycle(t *testing.T) {
 	assert.Equal(t, otelMetricsName, monitor.Spec.Endpoints[0].Port)
 	assert.Equal(t, "/metrics", monitor.Spec.Endpoints[0].Path)
 	assert.True(t, monitor.Spec.Endpoints[0].HonorLabels)
-	require.Len(t, monitor.Spec.Endpoints[0].RelabelConfigs, 1)
+	assert.Equal(t, "run-123", monitor.Annotations[telemetryValidationRunIDAnnotationKey])
+	require.Len(t, monitor.Spec.Endpoints[0].RelabelConfigs, 2)
 	assert.Equal(t, "mdai_connection", monitor.Spec.Endpoints[0].RelabelConfigs[0].TargetLabel)
 	assert.Equal(t, "replace", monitor.Spec.Endpoints[0].RelabelConfigs[0].Action)
-	assert.Equal(t, []prometheusv1.LabelName{"__meta_kubernetes_service_label_hub_mydecisive_ai_telemetry_validation"}, monitor.Spec.Endpoints[0].RelabelConfigs[0].SourceLabels)
+	assert.Equal(
+		t,
+		[]prometheusv1.LabelName{telemetryValidationPrometheusSourceLabel},
+		monitor.Spec.Endpoints[0].RelabelConfigs[0].SourceLabels,
+	)
+	assert.Equal(t, telemetryValidationRunIDMetricLabel, monitor.Spec.Endpoints[0].RelabelConfigs[1].TargetLabel)
+	assert.Equal(t, "replace", monitor.Spec.Endpoints[0].RelabelConfigs[1].Action)
+	assert.Equal(
+		t,
+		[]prometheusv1.LabelName{telemetryValidationRunIDPrometheusSource},
+		monitor.Spec.Endpoints[0].RelabelConfigs[1].SourceLabels,
+	)
 	assert.Equal(t, []string{"mdai"}, monitor.Spec.NamespaceSelector.MatchNames)
 	assert.Equal(t, map[string]string{
 		telemetryValidationLabelKey: "sample",
@@ -117,20 +131,42 @@ func TestReconcileValidatorLifecycle(t *testing.T) {
 	assertObjectExists(t, c, deploy, types.NamespacedName{Name: "sample-fidelity-validator", Namespace: "mdai"})
 	assert.Equal(t, telemetryValidationRoleValidator, deploy.Labels["hub.mydecisive.ai/role"])
 	assert.Equal(t, "sample", deploy.Labels[telemetryValidationLabelKey])
+	assert.Equal(t, "run-123", deploy.Annotations[telemetryValidationRunIDAnnotationKey])
+	assert.Equal(t, "run-123", deploy.Spec.Template.Annotations[telemetryValidationRunIDAnnotationKey])
 	assertDeploymentContainerPort(t, deploy, otelMetricsName, otelMetricsPort)
 	assertDeploymentEnvVar(t, deploy, "MDAI_DATADOG_AGENT_INGEST_ADDR", ":18126")
 
 	tv.Spec.Enabled = false
-	validatorName, validatorService, validatorEndpoint, _, err = r.reconcileValidator(context.Background(), tv)
+	validatorName, validatorService, validatorEndpoint, _, err = r.reconcileValidator(context.Background(), tv, "run-123")
 	require.NoError(t, err)
 	assert.Empty(t, validatorName)
 	assert.Empty(t, validatorService)
 	assert.Empty(t, validatorEndpoint)
 
-	assertObjectNotFound(t, c, &corev1.ConfigMap{}, types.NamespacedName{Name: "sample-fidelity-validator-config", Namespace: "mdai"})
-	assertObjectNotFound(t, c, &corev1.Service{}, types.NamespacedName{Name: "sample-fidelity-validator", Namespace: "mdai"})
-	assertObjectNotFound(t, c, &prometheusv1.ServiceMonitor{}, types.NamespacedName{Name: "sample-fidelity-validator-metrics", Namespace: "mdai"})
-	assertObjectNotFound(t, c, &appsv1.Deployment{}, types.NamespacedName{Name: "sample-fidelity-validator", Namespace: "mdai"})
+	assertObjectNotFound(
+		t,
+		c,
+		&corev1.ConfigMap{},
+		types.NamespacedName{Name: "sample-fidelity-validator-config", Namespace: "mdai"},
+	)
+	assertObjectNotFound(
+		t,
+		c,
+		&corev1.Service{},
+		types.NamespacedName{Name: "sample-fidelity-validator", Namespace: "mdai"},
+	)
+	assertObjectNotFound(
+		t,
+		c,
+		&prometheusv1.ServiceMonitor{},
+		types.NamespacedName{Name: "sample-fidelity-validator-metrics", Namespace: "mdai"},
+	)
+	assertObjectNotFound(
+		t,
+		c,
+		&appsv1.Deployment{},
+		types.NamespacedName{Name: "sample-fidelity-validator", Namespace: "mdai"},
+	)
 }
 
 func TestReconcileValidatorLifecycleUsesEmbeddedDefaultsWhenValidatorConfigEmpty(t *testing.T) {
@@ -175,7 +211,7 @@ func TestReconcileValidatorLifecycleUsesEmbeddedDefaultsWhenValidatorConfigEmpty
 	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(tv, collector).Build()
 	r := &TelemetryValidationReconciler{Client: c, Scheme: scheme}
 
-	_, _, validatorEndpoint, _, err := r.reconcileValidator(context.Background(), tv) //nolint:dogsled
+	_, _, validatorEndpoint, _, err := r.reconcileValidator(context.Background(), tv, "run-123") //nolint:dogsled
 	require.NoError(t, err)
 	assert.NotEmpty(t, validatorEndpoint)
 
@@ -283,12 +319,16 @@ func TestReconcileCreatesShadowCollectorLabels(t *testing.T) {
 
 	shadow := &otelv1beta1.OpenTelemetryCollector{}
 	assertObjectExists(t, c, shadow, types.NamespacedName{Name: shadowCollectorName("gateway"), Namespace: "mdai"})
+	updated := &hubv1.TelemetryValidation{}
+	assertObjectExists(t, c, updated, types.NamespacedName{Name: "sample", Namespace: "mdai"})
+	assert.Regexp(t, `^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`, updated.Status.RunID)
 	assert.Equal(t, telemetryValidationRoleShadow, shadow.Labels["hub.mydecisive.ai/role"])
 	assert.Equal(t, "sample", shadow.Labels[telemetryValidationLabelKey])
 	assert.Equal(t, "true", shadow.Labels["hub.mydecisive.ai/shadow"])
 	assert.Equal(t, "gateway", shadow.Labels["hub.mydecisive.ai/source"])
 	assert.Equal(t, "kept", shadow.Labels["existing-label"])
 	assert.Equal(t, "true", shadow.Annotations["hub.mydecisive.ai/shadow"])
+	assert.Equal(t, updated.Status.RunID, shadow.Annotations[telemetryValidationRunIDAnnotationKey])
 	assert.Equal(t, "kept", shadow.Annotations["existing-annotation"])
 }
 
