@@ -264,7 +264,7 @@ func validatorExportBaseURL(validatorEndpoint string) string {
 		return strings.TrimSuffix(validatorEndpoint, "/")
 	}
 
-	return "http://mdai-fidelity-validator.mdai.svc.cluster.local:18081" //nolint: revive
+	return "http://mdai-fidelity-validator.mdai.svc.cluster.local:18081" //nolint:revive
 }
 
 func pipelineSignal(name string) (hubv1.TelemetrySignal, bool) {

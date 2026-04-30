@@ -1,0 +1,30 @@
+apiVersion: opentelemetry.io/v1beta1
+kind: OpenTelemetryCollector
+metadata:
+  labels:
+    mydecisive.ai/hub-name: mdaihub-sample
+    hub.mydecisive.ai/role: connection-collector
+  name: gateway
+  namespace: otel
+spec:
+  envFrom:
+    - configMapRef:
+        name: mdaihub-sample-variables
+  config:
+    exporters:
+      debug:
+        verbosity: detailed
+    receivers:
+      otlp:
+        protocols:
+          grpc:
+            endpoint: 0.0.0.0:4317
+          http:
+            endpoint: 0.0.0.0:4318
+    service:
+      pipelines:
+        logs:
+          exporters:
+            - debug
+          receivers:
+            - otlp

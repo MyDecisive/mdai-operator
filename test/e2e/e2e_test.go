@@ -1194,13 +1194,76 @@ metadata:
 			Eventually(verifyValidatorGone, "1m", "5s").Should(Succeed())
 		})
 
-		It("can delete OTEL CRs", func() {
-			verifyMdaiHub := func(g Gomega) {
-				cmd := exec.Command("kubectl", "delete", "-f", "test/e2e/testdata/collector.yaml", "-n", otelNamespace)
+		It("can reconcile xDS proxy service ports from a connection-collector", func() {
+			By("creating the xDS proxy service in the operator namespace")
+			verifyProxySvcCreate := func(g Gomega) {
+				cmd := exec.Command("kubectl", "apply", "-f", "test/e2e/testdata/xds-proxy-service.yaml", "-n", namespace)
 				_, err := utils.Run(cmd)
 				g.Expect(err).NotTo(HaveOccurred())
 			}
-			Eventually(verifyMdaiHub).Should(Succeed())
+			Eventually(verifyProxySvcCreate).Should(Succeed())
+
+			By("applying a connection-collector CR")
+			verifyCollectorCreate := func(g Gomega) {
+				cmd := exec.Command("kubectl", "apply", "-f", "test/e2e/testdata/connection-collector.yaml", "-n", otelNamespace)
+				_, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+			}
+			Eventually(verifyCollectorCreate).Should(Succeed())
+
+			By("verifying the proxy service gets the managed xDS ports added")
+			verifyPorts := func(g Gomega) {
+				cmd := exec.Command("kubectl", "get", "service", "envoy-hub-proxy",
+					"-n", namespace,
+					"-o", "jsonpath={.spec.ports[*].name}")
+				out, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(out).To(ContainSubstring("xds-4317"))
+				g.Expect(out).To(ContainSubstring("xds-4318"))
+			}
+			Eventually(verifyPorts, "30s", "3s").Should(Succeed())
+		})
+
+		It("removes managed xDS ports when the connection-collector is deleted", func() {
+			By("deleting the connection-collector CR")
+			verifyCollectorDelete := func(g Gomega) {
+				cmd := exec.Command("kubectl", "delete", "-f", "test/e2e/testdata/connection-collector.yaml", "-n", otelNamespace)
+				_, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+			}
+			Eventually(verifyCollectorDelete).Should(Succeed())
+
+			By("verifying the managed xDS ports are removed from the proxy service")
+			verifyPortsGone := func(g Gomega) {
+				cmd := exec.Command("kubectl", "get", "service", "envoy-hub-proxy",
+					"-n", namespace,
+					"-o", "jsonpath={.spec.ports[*].name}")
+				out, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(out).NotTo(ContainSubstring("xds-4317"))
+				g.Expect(out).NotTo(ContainSubstring("xds-4318"))
+			}
+			Eventually(verifyPortsGone, "30s", "3s").Should(Succeed())
+
+			By("deleting the xDS proxy service")
+			cmd := exec.Command("kubectl", "delete", "-f", "test/e2e/testdata/xds-proxy-service.yaml", "-n", namespace)
+			_, _ = utils.Run(cmd)
+		})
+
+		It("can delete OTEL CRs", func() {
+			By("issuing the delete without waiting for finalizers")
+			cmd := exec.Command("kubectl", "delete", "-f", "test/e2e/testdata/collector.yaml",
+				"-n", otelNamespace, "--wait=false", "--ignore-not-found=true")
+			_, err := utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+
+			By("waiting for the collector to be fully removed")
+			verifyGone := func(g Gomega) {
+				cmd := exec.Command("kubectl", "get", "opentelemetrycollector", "gateway", "-n", otelNamespace)
+				_, err := utils.Run(cmd)
+				g.Expect(err).To(HaveOccurred(), "expected collector to be gone")
+			}
+			Eventually(verifyGone, "60s", "3s").Should(Succeed())
 		})
 	})
 })

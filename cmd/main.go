@@ -25,6 +25,7 @@ import (
 	mdaiv1 "github.com/mydecisive/mdai-operator/api/v1"
 	"github.com/mydecisive/mdai-operator/internal/controller"
 	webhookmdaiv1 "github.com/mydecisive/mdai-operator/internal/webhook/v1"
+	"github.com/mydecisive/mdai-operator/internal/xds"
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
 	// to ensure that exec-entrypoint and run can make use of them.
@@ -70,12 +71,14 @@ func main() {
 		probeAddr                                        string
 		secureMetrics                                    bool
 		enableHTTP2                                      bool
+		xdsPort                                          int
 		tlsOpts                                          []func(*tls.Config)
 	)
 	bindFlags(
 		&metricsAddr, &metricsCertPath, &metricsCertName, &metricsCertKey,
 		&webhookCertPath, &webhookCertName, &webhookCertKey,
 		&enableLeaderElection, &probeAddr, &secureMetrics, &enableHTTP2,
+		&xdsPort,
 	)
 
 	ctx := context.Background()
@@ -263,6 +266,14 @@ func main() {
 		gracefullyShutdownWithCode(1)
 	}
 
+	// Initialize XDS
+	xdsManager := xds.NewXDSManager()
+	xdsServer := xds.NewXDSServer(xdsManager, xdsPort)
+	if err := mgr.Add(xdsServer); err != nil {
+		setupLog.Error(err, "unable to add xDS server to manager")
+		gracefullyShutdownWithCode(1)
+	}
+
 	if err = (&controller.MdaiHubReconciler{
 		Client:    mgr.GetClient(),
 		Scheme:    mgr.GetScheme(),
@@ -278,6 +289,17 @@ func main() {
 		Recorder: mgr.GetEventRecorderFor("mdaicollector-controller"),
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "MdaiCollector")
+		gracefullyShutdownWithCode(1)
+	}
+
+	if err = (&controller.XDSReconciler{
+		Client:     mgr.GetClient(),
+		APIReader:  mgr.GetAPIReader(),
+		Scheme:     mgr.GetScheme(),
+		XDSManager: xdsManager,
+		Namespace:  os.Getenv(controller.PodNamespaceEnv),
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create xDS controller", "controller", "XDS")
 		gracefullyShutdownWithCode(1)
 	}
 
@@ -396,10 +418,12 @@ func bindFlags(
 	probeAddr *string,
 	secureMetrics *bool,
 	enableHTTP2 *bool,
+	xdsPort *int,
 ) {
 	flag.StringVar(metricsAddr, "metrics-bind-address", "0", "The address the metrics endpoint binds to. "+
 		"Use :8443 for HTTPS or :8080 for HTTP, or leave as 0 to disable the metrics service.")
 	flag.StringVar(probeAddr, "health-probe-bind-address", ":8081", "The address the probe endpoint binds to.")
+	flag.IntVar(xdsPort, "xds-port", 18000, "The port the xDS server binds to.")
 	flag.BoolVar(enableLeaderElection, "leader-elect", false,
 		"Enable leader election for controller manager. "+
 			"Enabling this will ensure there is only one active controller manager.")

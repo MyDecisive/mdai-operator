@@ -175,7 +175,7 @@ func TestReconcileValidatorLifecycleUsesEmbeddedDefaultsWhenValidatorConfigEmpty
 	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(tv, collector).Build()
 	r := &TelemetryValidationReconciler{Client: c, Scheme: scheme}
 
-	_, _, validatorEndpoint, _, err := r.reconcileValidator(context.Background(), tv)
+	_, _, validatorEndpoint, _, err := r.reconcileValidator(context.Background(), tv) //nolint:dogsled
 	require.NoError(t, err)
 	assert.NotEmpty(t, validatorEndpoint)
 
