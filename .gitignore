@@ -35,5 +35,6 @@ go.work
 /deployment/values.schema.json
 
 cover.txt
+coverage.txt
 
 mdai-operator-*.tgz
