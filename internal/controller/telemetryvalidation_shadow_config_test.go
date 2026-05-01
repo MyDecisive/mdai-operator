@@ -1,7 +1,6 @@
 package controller
 
 import (
-	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -87,8 +86,8 @@ func TestDeriveShadowConfigInjectsFidelityProcessorAndMetadata(t *testing.T) {
 	statementList, ok := traceStatement["statements"].([]any)
 	require.True(t, ok)
 	require.Len(t, statementList, 2)
-	assert.Equal(t, fmt.Sprintf(setDDTagsOnlyStatement, correlationDDTagKey, correlationAttributeKey, correlationAttributeKey), statementList[0])
-	assert.Equal(t, fmt.Sprintf(appendDDTagsStatement, correlationDDTagKey, correlationAttributeKey, correlationAttributeKey), statementList[1])
+	assert.Equal(t, ddTagsSetStatement(), statementList[0])
+	assert.Equal(t, ddTagsAppendStatement(), statementList[1])
 	logStatements, ok := transformProcessor["log_statements"].([]any)
 	require.True(t, ok)
 	require.Len(t, logStatements, 1)
@@ -110,7 +109,7 @@ func TestDeriveShadowConfigInjectsFidelityProcessorAndMetadata(t *testing.T) {
 	metricStatementList, ok := metricStatement["statements"].([]any)
 	require.True(t, ok)
 	require.Len(t, metricStatementList, 3)
-	assert.Equal(t, fmt.Sprintf(setMetricCorrelationStatement, correlationAttributeKey, correlationAttributeKey, correlationAttributeKey, correlationAttributeKey), metricStatementList[0])
+	assert.Equal(t, metricCorrelationStatement(), metricStatementList[0])
 	assert.Equal(t, deleteMetricDDTagsStatement, metricStatementList[1])
 	assert.Equal(t, deleteMetricTagsStatement, metricStatementList[2])
 

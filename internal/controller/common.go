@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 
 	"github.com/go-logr/logr"
 	"github.com/mydecisive/mdai-operator/internal/manifests"
@@ -153,6 +154,17 @@ func reconcileDesiredObjects(ctx context.Context, kubeClient client.Client, logg
 		return fmt.Errorf("failed to prune objects for %s: %w", owner.GetName(), err)
 	}
 	return nil
+}
+
+func mergeMaps(a, b map[string]string) map[string]string {
+	if a == nil && b == nil {
+		return nil
+	}
+
+	out := make(map[string]string, len(a)+len(b))
+	maps.Copy(out, a)
+	maps.Copy(out, b)
+	return out
 }
 
 func deleteObjects(ctx context.Context, kubeClient client.Client, logger logr.Logger, objects map[types.UID]client.Object) error {

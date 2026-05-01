@@ -2,6 +2,7 @@ package controller
 
 import (
 	"context"
+	_ "embed"
 	"fmt"
 	"slices"
 	"strings"
@@ -19,6 +20,19 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	hubv1 "github.com/mydecisive/mdai-operator/api/v1"
+)
+
+//go:embed config/telemetryvalidation_validator_rules.yaml
+var telemetryValidationValidatorRulesDefaultYAML string
+
+//go:embed config/telemetryvalidation_validator_field_mapping.yaml
+var telemetryValidationValidatorFieldMappingDefaultYAML string
+
+const (
+	defaultValidatorImage              = "ghcr.io/mydecisive/mdai-fidelity-validator:0.1.0"
+	defaultValidatorPort         int32 = 18081
+	defaultValidatorReceiverPort int32 = 8126
+	defaultValidatorReplicas     int32 = 1
 )
 
 //nolint:revive // function-result-limit: returning these values avoids an extra struct in hot reconcile flow.
