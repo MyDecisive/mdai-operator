@@ -15,6 +15,30 @@ spec:
     replicas: 1
     tolerations: []
   observers:
+  - name: gs_greptime_one
+    provider: greptimeFlow
+    type: spanMetrics
+    spanMetricsObserver:
+      greptime:
+        dimensions:
+          - service_name
+          - span_attributes.server.address
+          - resource_attributes.host.name
+        primaryKey: service_name
+        flowAggregateInterval: "3 seconds"
+        allowSinkTableRecreate: false
+        sinkTableTtl: 1year
+  - name: watcher_gs_otel
+    provider: otelCollector
+    type: spanMetrics
+    spanMetricsObserver:
+      otel:
+        groupByAttrs:
+          - some.field
+        connectorConfig:
+          dimensions:
+            - name: host.name
+            - name: server.address
   - name: watcher1
     type: dataVolume
     provider: otelCollector
