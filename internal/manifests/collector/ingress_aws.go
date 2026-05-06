@@ -4,7 +4,8 @@ package collector
 import (
 	"errors"
 	"maps"
-	"sort"
+	"slices"
+	"strings"
 
 	hubv1 "github.com/mydecisive/mdai-operator/api/v1"
 	"github.com/mydecisive/mdai-operator/internal/components"
@@ -93,9 +94,7 @@ func IngressAws(params manifests.Params) (*networkingv1.Ingress, error) {
 		return nil, nil // nolint:nilnil
 	}
 
-	sort.Slice(rules, func(i, j int) bool {
-		return rules[i].Host < rules[j].Host
-	})
+	slices.SortFunc(rules, func(a, b networkingv1.IngressRule) int { return strings.Compare(a.Host, b.Host) })
 
 	return &networkingv1.Ingress{
 		ObjectMeta: metav1.ObjectMeta{

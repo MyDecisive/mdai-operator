@@ -16,7 +16,8 @@
 package collector
 
 import (
-	"sort"
+	"slices"
+	"strings"
 	"testing"
 
 	mdaiv1 "github.com/mydecisive/mdai-operator/api/v1"
@@ -103,8 +104,8 @@ func TestDesiredServiceAws(t *testing.T) {
 
 		desiredPorts := desiredGrpcSpec.Ports
 		actualPorts := actualGrpc.Spec.Ports
-		sort.Slice(desiredPorts, func(i, j int) bool { return desiredPorts[i].Name < desiredPorts[j].Name })
-		sort.Slice(actualPorts, func(i, j int) bool { return actualPorts[i].Name < actualPorts[j].Name })
+		slices.SortFunc(desiredPorts, func(a, b corev1.ServicePort) int { return strings.Compare(a.Name, b.Name) })
+		slices.SortFunc(actualPorts, func(a, b corev1.ServicePort) int { return strings.Compare(a.Name, b.Name) })
 		assert.Equal(t, desiredPorts, actualPorts)
 
 		actualNonGrpc, err := NonGrpcService(params)
@@ -113,8 +114,8 @@ func TestDesiredServiceAws(t *testing.T) {
 
 		desiredPorts = desiredNonGrpcSpec.Ports
 		actualPorts = actualNonGrpc.Spec.Ports
-		sort.Slice(desiredPorts, func(i, j int) bool { return desiredPorts[i].Name < desiredPorts[j].Name })
-		sort.Slice(actualPorts, func(i, j int) bool { return actualPorts[i].Name < actualPorts[j].Name })
+		slices.SortFunc(desiredPorts, func(a, b corev1.ServicePort) int { return strings.Compare(a.Name, b.Name) })
+		slices.SortFunc(actualPorts, func(a, b corev1.ServicePort) int { return strings.Compare(a.Name, b.Name) })
 		assert.Equal(t, desiredPorts, actualPorts)
 	})
 }

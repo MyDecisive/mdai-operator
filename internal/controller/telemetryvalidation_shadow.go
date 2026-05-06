@@ -3,12 +3,14 @@ package controller
 import (
 	"context"
 	"fmt"
+	"slices"
 
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
 	otelv1beta1 "github.com/open-telemetry/opentelemetry-operator/apis/v1beta1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	logger "sigs.k8s.io/controller-runtime/pkg/log"
 
@@ -153,4 +155,33 @@ func (r *TelemetryValidationReconciler) reconcileShadowCollector(
 
 func shadowCollectorName(collectorName string) string {
 	return collectorName + "-shadow"
+}
+
+func activeSignals(signals []hubv1.TelemetrySignal) []hubv1.TelemetrySignal {
+	if len(signals) == 0 {
+		return []hubv1.TelemetrySignal{
+			hubv1.TelemetrySignalMetrics,
+			hubv1.TelemetrySignalLogs,
+			hubv1.TelemetrySignalTraces,
+		}
+	}
+
+	unique := make([]hubv1.TelemetrySignal, 0, len(signals))
+	for _, signal := range signals {
+		if !slices.Contains(unique, signal) {
+			unique = append(unique, signal)
+		}
+	}
+
+	return unique
+}
+
+func setValidationCondition(conditions *[]metav1.Condition, generation int64, status metav1.ConditionStatus, reason, message string) {
+	apimeta.SetStatusCondition(conditions, metav1.Condition{
+		Type:               typeAvailableHub,
+		Status:             status,
+		Reason:             reason,
+		Message:            message,
+		ObservedGeneration: generation,
+	})
 }

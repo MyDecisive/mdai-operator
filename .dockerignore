@@ -7,15 +7,30 @@ LICENSE
 Makefile
 PROJECT
 README.md
+config.json
 
 test/
 vendor/
 
-**/.git
+bin/
+.devcontainer/
+.git/
+.github/
+.claude
+
+.idea
+.vscode
+.env
+.env.*
+**/.idea
 **/.vscode
+**/.env
+**/.env.*
 **/*.swp
 **/tmp
-
 **/*.log
 **/*.bak
-**/bin/
+
+cover.txt
+coverage.txt
+.golangci.yml
