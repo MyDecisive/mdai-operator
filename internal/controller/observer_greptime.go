@@ -9,8 +9,8 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/decisiveai/mdai-operator/internal/greptimedb"
+	"github.com/jackc/pgx/v5/pgconn"
 	"gorm.io/gorm"
 )
 
