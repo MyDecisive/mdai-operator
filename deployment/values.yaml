@@ -19,7 +19,7 @@ controllerManager:
       valkeyAuditStreamExpiryMs: "2592000000"
     image:
       repository: ghcr.io/mydecisive/mdai-operator
-      tag: 0.2.13
+      tag: 0.2.14
     resources:
       limits:
         cpu: 500m
