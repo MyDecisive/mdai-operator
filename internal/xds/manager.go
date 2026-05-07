@@ -55,11 +55,12 @@ func (m *Manager) GetCache() cache.Cache {
 }
 
 type collectorPort struct {
-	port        uint32
-	svc         string
-	name        string
-	ns          string
-	enableHTTP2 bool
+	port           uint32
+	svc            string
+	name           string
+	ns             string
+	enableHTTP2    bool
+	mdaiConnection string
 }
 
 type routeTarget struct {
@@ -117,11 +118,12 @@ func (m *Manager) UpdateSnapshot(ctx context.Context, nodeID string, collectors 
 
 		for _, p := range ports {
 			portMap[p.port] = append(portMap[p.port], collectorPort{
-				port:        p.port,
-				svc:         svcName,
-				name:        c.Name,
-				ns:          c.Namespace,
-				enableHTTP2: p.enableHTTP2,
+				port:           p.port,
+				svc:            svcName,
+				name:           c.Name,
+				ns:             c.Namespace,
+				enableHTTP2:    p.enableHTTP2,
+				mdaiConnection: c.Labels["app"],
 			})
 		}
 	}
@@ -135,7 +137,7 @@ func (m *Manager) UpdateSnapshot(ctx context.Context, nodeID string, collectors 
 
 		for _, cp := range cpList {
 			// Cluster name is based on the service it forwards to
-			clusterName := fmt.Sprintf("%s_%s_%d", cp.ns, cp.name, cp.port)
+			clusterName := clusterNameForPort(cp)
 			appendCluster(&clusters, seenClusters, newDNSCluster(clusterName, cp.svc, cp.port, protocolOptionsForCollectorPort(cp, upstreamProtocolOptionsAny)))
 
 			mirrorTargets := validationTargetsForCollectorPort(log, cp, port, validations)
@@ -168,7 +170,7 @@ func (m *Manager) UpdateSnapshot(ctx context.Context, nodeID string, collectors 
 		}
 
 		if len(cpList) == 1 {
-			clusterName := fmt.Sprintf("%s_%s_%d", cpList[0].ns, cpList[0].name, cpList[0].port)
+			clusterName := clusterNameForPort(cpList[0])
 			mirrorTargets := validationTargetsForCollectorPort(log, cpList[0], port, validations)
 			virtualHosts = append(virtualHosts, &route.VirtualHost{
 				Name:    fmt.Sprintf("vhost_%s_%s_%d_default", cpList[0].ns, cpList[0].name, cpList[0].port),
@@ -176,7 +178,7 @@ func (m *Manager) UpdateSnapshot(ctx context.Context, nodeID string, collectors 
 				Routes:  []*route.Route{buildRoute(clusterName, mirrorTargets)},
 			})
 		} else if len(cpList) > 1 {
-			defaultClusterName := fmt.Sprintf("%s_%d", cpList[0].name, cpList[0].port)
+			defaultClusterName := prefixClusterName(cpList[0].mdaiConnection, fmt.Sprintf("%s_%d", cpList[0].name, cpList[0].port))
 			mirrorTargets := validationTargetsForCollectorPort(log, cpList[0], port, validations)
 			virtualHosts = append(virtualHosts, &route.VirtualHost{
 				Name:    fmt.Sprintf("vhost_default_%d", port),
@@ -429,14 +431,14 @@ func validationTargetsForCollectorPort(log logr.Logger, cp collectorPort, listen
 			continue
 		}
 		targets = append(targets, routeTarget{
-			clusterName: fmt.Sprintf("%s_%s_%s_validator_%d", cp.name, validation.Namespace, validation.Name, listenerPort),
+			clusterName: prefixClusterName(cp.mdaiConnection, fmt.Sprintf("%s_%s_%s_validator_%d", cp.name, validation.Namespace, validation.Name, listenerPort)),
 			address:     fmt.Sprintf("%s.%s.svc.cluster.local", validatorService, validation.Namespace),
 			port:        listenerPort,
 		})
 
 		shadowName := shadowCollectorName(cp.name)
 		targets = append(targets, routeTarget{
-			clusterName: fmt.Sprintf("%s_%s_%s_shadow_%d", cp.name, validation.Namespace, validation.Name, listenerPort),
+			clusterName: prefixClusterName(cp.mdaiConnection, fmt.Sprintf("%s_%s_%s_shadow_%d", cp.name, validation.Namespace, validation.Name, listenerPort)),
 			address:     fmt.Sprintf("%s-collector.%s.svc.cluster.local", shadowName, validation.Namespace),
 			port:        listenerPort,
 		})
@@ -447,6 +449,17 @@ func validationTargetsForCollectorPort(log logr.Logger, cp collectorPort, listen
 
 func shadowCollectorName(collectorName string) string {
 	return collectorName + "-shadow"
+}
+
+func clusterNameForPort(cp collectorPort) string {
+	return prefixClusterName(cp.mdaiConnection, fmt.Sprintf("%s_%s_%d", cp.ns, cp.name, cp.port))
+}
+
+func prefixClusterName(mdaiConnection, name string) string {
+	if mdaiConnection != "" {
+		return mdaiConnection + "__" + name
+	}
+	return name
 }
 
 func IsShadowCollector(c otelv1beta1.OpenTelemetryCollector) bool {
