@@ -305,7 +305,7 @@ func (r *TelemetryValidationReconciler) reconcileValidator(
 				},
 			}
 
-			defaultMode := int32(420)
+			defaultMode := int32(420) // nolint: mnd
 			deployment.Spec.Template.Spec.Volumes = []corev1.Volume{
 				{
 					Name: "validator-config",
