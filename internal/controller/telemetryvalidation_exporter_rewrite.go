@@ -35,7 +35,6 @@ type exporterRewriteRule struct {
 	ReplaceWithExporterValue map[string]any    `json:"replace_with_exporter_value,omitempty"`
 }
 
-// ok, I think this needs to be updated to return a new name :sobby: or to be able to
 func rewriteExporterConfig(exporterName string, raw any, rules []exporterRewriteRule, templateVars map[string]string) (string, any) {
 	cfg, ok := raw.(map[string]any)
 	if !ok {
