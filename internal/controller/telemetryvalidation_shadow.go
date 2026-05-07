@@ -3,6 +3,7 @@ package controller
 import (
 	"context"
 	"fmt"
+	"maps"
 	"slices"
 
 	"k8s.io/apimachinery/pkg/types"
@@ -99,14 +100,23 @@ func (r *TelemetryValidationReconciler) reconcileShadowCollector(
 			return err
 		}
 
-		shadow.Labels = mergeMaps(source.Labels, map[string]string{
+		if shadow.Labels == nil {
+			shadow.Labels = map[string]string{}
+		}
+		maps.Copy(shadow.Labels, source.Labels)
+		maps.Copy(shadow.Labels, map[string]string{
 			LabelManagedByMdaiKey:       LabelManagedByMdaiValue,
 			"hub.mydecisive.ai/source":  source.Name,
 			telemetryValidationLabelKey: validation.Name,
 			"hub.mydecisive.ai/role":    telemetryValidationRoleShadow,
 			"hub.mydecisive.ai/shadow":  "true",
 		})
-		shadow.Annotations = mergeMaps(source.Annotations, map[string]string{
+
+		if shadow.Annotations == nil {
+			shadow.Annotations = map[string]string{}
+		}
+		maps.Copy(shadow.Annotations, source.Annotations)
+		maps.Copy(shadow.Annotations, map[string]string{
 			"hub.mydecisive.ai/shadow":            "true",
 			telemetryValidationRunIDAnnotationKey: runID,
 		})

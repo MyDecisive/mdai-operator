@@ -4,11 +4,13 @@ import (
 	"context"
 	_ "embed"
 	"fmt"
+	"maps"
 	"slices"
 	"strings"
 
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
+	"k8s.io/client-go/util/retry"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
@@ -66,23 +68,33 @@ func (r *TelemetryValidationReconciler) reconcileValidator(
 			Namespace: validation.Namespace,
 		},
 	}
-	_, err = controllerutil.CreateOrUpdate(ctx, r.Client, cfgMap, func() error {
-		if err := controllerutil.SetControllerReference(validation, cfgMap, r.Scheme); err != nil {
-			return err
-		}
-		cfgMap.Labels = map[string]string{
-			LabelManagedByMdaiKey:       LabelManagedByMdaiValue,
-			telemetryValidationLabelKey: validation.Name,
-			"hub.mydecisive.ai/role":    telemetryValidationRoleValidator,
-		}
-		cfgMap.Annotations = map[string]string{
-			telemetryValidationRunIDAnnotationKey: runID,
-		}
-		cfgMap.Data = map[string]string{
-			"rules.yaml":         validatorRulesYAML,
-			"field-mapping.yaml": validatorFieldMappingYAML,
-		}
-		return nil
+	err = retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		_, createOrUpdateErr := controllerutil.CreateOrUpdate(ctx, r.Client, cfgMap, func() error {
+			if err := controllerutil.SetControllerReference(validation, cfgMap, r.Scheme); err != nil {
+				return err
+			}
+
+			if cfgMap.Labels == nil {
+				cfgMap.Labels = map[string]string{}
+			}
+			maps.Copy(cfgMap.Labels, map[string]string{
+				LabelManagedByMdaiKey:       LabelManagedByMdaiValue,
+				telemetryValidationLabelKey: validation.Name,
+				"hub.mydecisive.ai/role":    telemetryValidationRoleValidator,
+			})
+
+			if cfgMap.Annotations == nil {
+				cfgMap.Annotations = map[string]string{}
+			}
+			cfgMap.Annotations[telemetryValidationRunIDAnnotationKey] = runID
+
+			cfgMap.Data = map[string]string{
+				"rules.yaml":         validatorRulesYAML,
+				"field-mapping.yaml": validatorFieldMappingYAML,
+			}
+			return nil
+		})
+		return createOrUpdateErr
 	})
 	if err != nil {
 		return "", "", "", 0, err
@@ -94,24 +106,31 @@ func (r *TelemetryValidationReconciler) reconcileValidator(
 			Namespace: validation.Namespace,
 		},
 	}
-	_, err = controllerutil.CreateOrUpdate(ctx, r.Client, service, func() error {
-		if err := controllerutil.SetControllerReference(validation, service, r.Scheme); err != nil {
-			return err
-		}
-		service.Labels = map[string]string{
-			LabelManagedByMdaiKey:       LabelManagedByMdaiValue,
-			telemetryValidationLabelKey: validation.Name,
-			"hub.mydecisive.ai/role":    telemetryValidationRoleValidator,
-		}
-		service.Annotations = map[string]string{
-			telemetryValidationRunIDAnnotationKey: runID,
-		}
-		service.Spec = corev1.ServiceSpec{
-			Selector: map[string]string{
+	err = retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		_, createOrUpdateErr := controllerutil.CreateOrUpdate(ctx, r.Client, service, func() error {
+			if err := controllerutil.SetControllerReference(validation, service, r.Scheme); err != nil {
+				return err
+			}
+
+			if service.Labels == nil {
+				service.Labels = map[string]string{}
+			}
+			maps.Copy(service.Labels, map[string]string{
+				LabelManagedByMdaiKey:       LabelManagedByMdaiValue,
+				telemetryValidationLabelKey: validation.Name,
+				"hub.mydecisive.ai/role":    telemetryValidationRoleValidator,
+			})
+
+			if service.Annotations == nil {
+				service.Annotations = map[string]string{}
+			}
+			service.Annotations[telemetryValidationRunIDAnnotationKey] = runID
+
+			service.Spec.Selector = map[string]string{
 				"app.kubernetes.io/name":     validatorName,
 				"app.kubernetes.io/instance": validation.Name,
-			},
-			Ports: append(
+			}
+			service.Spec.Ports = append(
 				buildValidatorReceiverServicePorts(validatorIngressPorts, validatorIngressPort),
 				corev1.ServicePort{
 					Name:       "exporter-intake",
@@ -125,10 +144,11 @@ func (r *TelemetryValidationReconciler) reconcileValidator(
 					TargetPort: intstr.FromString(otelMetricsName),
 					Protocol:   corev1.ProtocolTCP,
 				},
-			),
-			Type: corev1.ServiceTypeClusterIP,
-		}
-		return nil
+			)
+			service.Spec.Type = corev1.ServiceTypeClusterIP
+			return nil
+		})
+		return createOrUpdateErr
 	})
 	if err != nil {
 		return "", "", "", 0, err
@@ -140,32 +160,39 @@ func (r *TelemetryValidationReconciler) reconcileValidator(
 			Namespace: validation.Namespace,
 		},
 	}
-	_, err = controllerutil.CreateOrUpdate(ctx, r.Client, monitor, func() error {
-		if err := controllerutil.SetControllerReference(validation, monitor, r.Scheme); err != nil {
-			return err
-		}
+	err = retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		_, createOrUpdateErr := controllerutil.CreateOrUpdate(ctx, r.Client, monitor, func() error {
+			if err := controllerutil.SetControllerReference(validation, monitor, r.Scheme); err != nil {
+				return err
+			}
 
-		mdaiConnectionSourceLabel := prometheusv1.LabelName(telemetryValidationPrometheusSourceLabel)
-		runIDSourceLabel := prometheusv1.LabelName(telemetryValidationRunIDPrometheusSource)
-		monitor.Labels = map[string]string{
-			LabelManagedByMdaiKey:       LabelManagedByMdaiValue,
-			telemetryValidationLabelKey: validation.Name,
-			"hub.mydecisive.ai/role":    telemetryValidationRoleValidator,
-		}
-		monitor.Annotations = map[string]string{
-			telemetryValidationRunIDAnnotationKey: runID,
-		}
-		monitor.Spec = prometheusv1.ServiceMonitorSpec{
-			Selector: metav1.LabelSelector{
+			mdaiConnectionSourceLabel := prometheusv1.LabelName(telemetryValidationPrometheusSourceLabel)
+			runIDSourceLabel := prometheusv1.LabelName(telemetryValidationRunIDPrometheusSource)
+
+			if monitor.Labels == nil {
+				monitor.Labels = map[string]string{}
+			}
+			maps.Copy(monitor.Labels, map[string]string{
+				LabelManagedByMdaiKey:       LabelManagedByMdaiValue,
+				telemetryValidationLabelKey: validation.Name,
+				"hub.mydecisive.ai/role":    telemetryValidationRoleValidator,
+			})
+
+			if monitor.Annotations == nil {
+				monitor.Annotations = map[string]string{}
+			}
+			monitor.Annotations[telemetryValidationRunIDAnnotationKey] = runID
+
+			monitor.Spec.Selector = metav1.LabelSelector{
 				MatchLabels: map[string]string{
 					telemetryValidationLabelKey: validation.Name,
 					"hub.mydecisive.ai/role":    telemetryValidationRoleValidator,
 				},
-			},
-			NamespaceSelector: prometheusv1.NamespaceSelector{
+			}
+			monitor.Spec.NamespaceSelector = prometheusv1.NamespaceSelector{
 				MatchNames: []string{validation.Namespace},
-			},
-			Endpoints: []prometheusv1.Endpoint{
+			}
+			monitor.Spec.Endpoints = []prometheusv1.Endpoint{
 				{
 					Port:        otelMetricsName,
 					Path:        "/metrics",
@@ -183,9 +210,10 @@ func (r *TelemetryValidationReconciler) reconcileValidator(
 						},
 					},
 				},
-			},
-		}
-		return nil
+			}
+			return nil
+		})
+		return createOrUpdateErr
 	})
 	if err != nil {
 		return "", "", "", 0, err
@@ -197,89 +225,102 @@ func (r *TelemetryValidationReconciler) reconcileValidator(
 			Namespace: validation.Namespace,
 		},
 	}
-	_, err = controllerutil.CreateOrUpdate(ctx, r.Client, deployment, func() error {
-		if err := controllerutil.SetControllerReference(validation, deployment, r.Scheme); err != nil {
-			return err
-		}
-		labels := map[string]string{
-			LabelManagedByMdaiKey:        LabelManagedByMdaiValue,
-			telemetryValidationLabelKey:  validation.Name,
-			"hub.mydecisive.ai/role":     telemetryValidationRoleValidator,
-			"app.kubernetes.io/name":     validatorName,
-			"app.kubernetes.io/instance": validation.Name,
-		}
-		deployment.Labels = labels
-		deployment.Annotations = map[string]string{
-			telemetryValidationRunIDAnnotationKey: runID,
-		}
-		deployment.Spec = appsv1.DeploymentSpec{
-			Replicas: &validatorReplicas,
-			Selector: &metav1.LabelSelector{
+	err = retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		_, createOrUpdateErr := controllerutil.CreateOrUpdate(ctx, r.Client, deployment, func() error {
+			if err := controllerutil.SetControllerReference(validation, deployment, r.Scheme); err != nil {
+				return err
+			}
+			labels := map[string]string{
+				LabelManagedByMdaiKey:        LabelManagedByMdaiValue,
+				telemetryValidationLabelKey:  validation.Name,
+				"hub.mydecisive.ai/role":     telemetryValidationRoleValidator,
+				"app.kubernetes.io/name":     validatorName,
+				"app.kubernetes.io/instance": validation.Name,
+			}
+
+			if deployment.Labels == nil {
+				deployment.Labels = map[string]string{}
+			}
+			maps.Copy(deployment.Labels, labels)
+
+			if deployment.Annotations == nil {
+				deployment.Annotations = map[string]string{}
+			}
+			deployment.Annotations[telemetryValidationRunIDAnnotationKey] = runID
+
+			deployment.Spec.Replicas = &validatorReplicas
+			deployment.Spec.Selector = &metav1.LabelSelector{
 				MatchLabels: map[string]string{
 					"app.kubernetes.io/name":     validatorName,
 					"app.kubernetes.io/instance": validation.Name,
 				},
-			},
-			Template: corev1.PodTemplateSpec{
-				ObjectMeta: metav1.ObjectMeta{
-					Labels: labels,
-					Annotations: map[string]string{
-						telemetryValidationRunIDAnnotationKey: runID,
-					},
+			}
+
+			if deployment.Spec.Template.Labels == nil {
+				deployment.Spec.Template.Labels = map[string]string{}
+			}
+			maps.Copy(deployment.Spec.Template.Labels, labels)
+
+			if deployment.Spec.Template.Annotations == nil {
+				deployment.Spec.Template.Annotations = map[string]string{}
+			}
+			deployment.Spec.Template.Annotations[telemetryValidationRunIDAnnotationKey] = runID
+
+			if len(deployment.Spec.Template.Spec.Containers) == 0 {
+				deployment.Spec.Template.Spec.Containers = []corev1.Container{{}}
+			}
+
+			deployment.Spec.Template.Spec.Containers[0].Name = "validator"
+			deployment.Spec.Template.Spec.Containers[0].Image = validatorImage
+			deployment.Spec.Template.Spec.Containers[0].ImagePullPolicy = corev1.PullIfNotPresent
+			deployment.Spec.Template.Spec.Containers[0].Ports = []corev1.ContainerPort{
+				{
+					Name:          "receiver-intake",
+					ContainerPort: validatorIngressPort,
+					Protocol:      corev1.ProtocolTCP,
 				},
-				Spec: corev1.PodSpec{
-					Containers: []corev1.Container{
-						{
-							Name:            "validator",
-							Image:           validatorImage,
-							ImagePullPolicy: corev1.PullIfNotPresent,
-							Ports: []corev1.ContainerPort{
-								{
-									Name:          "receiver-intake",
-									ContainerPort: validatorIngressPort,
-									Protocol:      corev1.ProtocolTCP,
-								},
-								{
-									Name:          "exporter-intake",
-									ContainerPort: validatorPort,
-									Protocol:      corev1.ProtocolTCP,
-								},
-								{
-									Name:          otelMetricsName,
-									ContainerPort: otelMetricsPort,
-									Protocol:      corev1.ProtocolTCP,
-								},
-							},
-							Env: []corev1.EnvVar{
-								{Name: "MDAI_DATADOG_AGENT_INGEST_ADDR", Value: fmt.Sprintf(":%d", validatorIngressPort)},
-								{Name: "MDAI_EXPORTER_API_ADDR", Value: fmt.Sprintf(":%d", validatorPort)},
-								{Name: "MDAI_FIDELITY_RULES_PATH", Value: "/etc/mdai-fidelity-validator/rules.yaml"},
-								{Name: "MDAI_FIDELITY_FIELD_MAPPING_PATH", Value: "/etc/mdai-fidelity-validator/field-mapping.yaml"},
-								{Name: "MDAI_CONNECTION_NAME", Value: validation.Name},
-							},
-							VolumeMounts: []corev1.VolumeMount{
-								{
-									Name:      "validator-config",
-									MountPath: "/etc/mdai-fidelity-validator",
-									ReadOnly:  true,
-								},
-							},
+				{
+					Name:          "exporter-intake",
+					ContainerPort: validatorPort,
+					Protocol:      corev1.ProtocolTCP,
+				},
+				{
+					Name:          otelMetricsName,
+					ContainerPort: otelMetricsPort,
+					Protocol:      corev1.ProtocolTCP,
+				},
+			}
+			deployment.Spec.Template.Spec.Containers[0].Env = []corev1.EnvVar{
+				{Name: "MDAI_DATADOG_AGENT_INGEST_ADDR", Value: fmt.Sprintf(":%d", validatorIngressPort)},
+				{Name: "MDAI_EXPORTER_API_ADDR", Value: fmt.Sprintf(":%d", validatorPort)},
+				{Name: "MDAI_FIDELITY_RULES_PATH", Value: "/etc/mdai-fidelity-validator/rules.yaml"},
+				{Name: "MDAI_FIDELITY_FIELD_MAPPING_PATH", Value: "/etc/mdai-fidelity-validator/field-mapping.yaml"},
+				{Name: "MDAI_CONNECTION_NAME", Value: validation.Name},
+			}
+			deployment.Spec.Template.Spec.Containers[0].VolumeMounts = []corev1.VolumeMount{
+				{
+					Name:      "validator-config",
+					MountPath: "/etc/mdai-fidelity-validator",
+					ReadOnly:  true,
+				},
+			}
+
+			defaultMode := int32(420)
+			deployment.Spec.Template.Spec.Volumes = []corev1.Volume{
+				{
+					Name: "validator-config",
+					VolumeSource: corev1.VolumeSource{
+						ConfigMap: &corev1.ConfigMapVolumeSource{
+							LocalObjectReference: corev1.LocalObjectReference{Name: validatorConfigName},
+							DefaultMode:          &defaultMode,
 						},
 					},
-					Volumes: []corev1.Volume{
-						{
-							Name: "validator-config",
-							VolumeSource: corev1.VolumeSource{
-								ConfigMap: &corev1.ConfigMapVolumeSource{
-									LocalObjectReference: corev1.LocalObjectReference{Name: validatorConfigName},
-								},
-							},
-						},
-					},
 				},
-			},
-		}
-		return nil
+			}
+
+			return nil
+		})
+		return createOrUpdateErr
 	})
 	if err != nil {
 		return "", "", "", 0, err
