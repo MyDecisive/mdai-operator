@@ -339,8 +339,139 @@ func TestUpdateSnapshotDoesNotForceHTTP2ForNonGRPCPorts(t *testing.T) {
 	assert.False(t, exists, "non-gRPC cluster should not force HTTP/2 upstream protocol options")
 }
 
+func TestPrefixClusterName(t *testing.T) {
+	t.Parallel()
+
+	assert.Equal(t, "myconn__ns_name_4317", prefixClusterName("myconn", "ns_name_4317"))
+	assert.Equal(t, "ns_name_4317", prefixClusterName("", "ns_name_4317"))
+}
+
+func TestClusterNameForPort(t *testing.T) {
+	t.Parallel()
+
+	cp := collectorPort{ns: "mdai", name: "gateway", port: 4317, mdaiConnection: ""}
+	assert.Equal(t, "mdai_gateway_4317", clusterNameForPort(cp))
+
+	cp.mdaiConnection = "my-hub"
+	assert.Equal(t, "my-hub__mdai_gateway_4317", clusterNameForPort(cp))
+}
+
+func TestUpdateSnapshotPrefixesClusterNamesWithMdaiConnection(t *testing.T) {
+	t.Parallel()
+
+	manager := NewXDSManager()
+	collectors := []otelv1beta1.OpenTelemetryCollector{
+		newCollectorWithApp("gateway", "mdai", "my-hub"),
+	}
+
+	err := manager.UpdateSnapshot(context.Background(), "envoy-hub-proxy", collectors, nil)
+	require.NoError(t, err)
+
+	snapshot, err := manager.cache.GetSnapshot("envoy-hub-proxy")
+	require.NoError(t, err)
+	concreteSnapshot, ok := snapshot.(*cachev3.Snapshot)
+	require.True(t, ok)
+
+	clusters := concreteSnapshot.GetResources(resource.ClusterType)
+	_, ok = clusters["my-hub__mdai_gateway_4317"]
+	assert.True(t, ok, "expected cluster my-hub__mdai_gateway_4317")
+	_, unprefixed := clusters["mdai_gateway_4317"]
+	assert.False(t, unprefixed, "unprefixed cluster mdai_gateway_4317 should not exist when app label is set")
+}
+
+func TestUpdateSnapshotPrefixesValidatorAndShadowClusterNamesWithMdaiConnection(t *testing.T) {
+	t.Parallel()
+
+	manager := NewXDSManager()
+	collectors := []otelv1beta1.OpenTelemetryCollector{
+		newCollectorWithApp("gateway", "mdai", "my-hub"),
+	}
+	validations := []hubv1.TelemetryValidation{
+		{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "sample",
+				Namespace: "mdai",
+			},
+			Spec: hubv1.TelemetryValidationSpec{
+				Enabled: true,
+				CollectorRef: hubv1.TelemetryValidationCollectorRef{
+					Name: "gateway",
+				},
+			},
+			Status: hubv1.TelemetryValidationStatus{
+				ValidatorService: "sample-fidelity-validator",
+			},
+		},
+	}
+
+	err := manager.UpdateSnapshot(context.Background(), "envoy-hub-proxy", collectors, validations)
+	require.NoError(t, err)
+
+	snapshot, err := manager.cache.GetSnapshot("envoy-hub-proxy")
+	require.NoError(t, err)
+	concreteSnapshot, ok := snapshot.(*cachev3.Snapshot)
+	require.True(t, ok)
+
+	clusters := concreteSnapshot.GetResources(resource.ClusterType)
+
+	_, ok = clusters["my-hub__gateway_mdai_sample_validator_4317"]
+	assert.True(t, ok, "expected prefixed validator cluster my-hub__gateway_mdai_sample_validator_4317")
+
+	_, ok = clusters["my-hub__gateway_mdai_sample_shadow_4317"]
+	assert.True(t, ok, "expected prefixed shadow cluster my-hub__gateway_mdai_sample_shadow_4317")
+}
+
+func TestUpdateSnapshotPrefixesWildcardDefaultClusterWithMdaiConnection(t *testing.T) {
+	t.Parallel()
+
+	manager := NewXDSManager()
+	collectors := []otelv1beta1.OpenTelemetryCollector{
+		newCollectorWithApp("alpha", "mdai", "my-hub"),
+		newCollectorWithApp("beta", "mdai", "my-hub"),
+	}
+
+	err := manager.UpdateSnapshot(context.Background(), "envoy-hub-proxy", collectors, nil)
+	require.NoError(t, err)
+
+	snapshot, err := manager.cache.GetSnapshot("envoy-hub-proxy")
+	require.NoError(t, err)
+	concreteSnapshot, ok := snapshot.(*cachev3.Snapshot)
+	require.True(t, ok)
+
+	listeners := concreteSnapshot.GetResources(resource.ListenerType)
+	rawListener, ok := listeners["listener_4317"]
+	require.True(t, ok, "listener_4317 not found")
+
+	l, ok := rawListener.(*listener.Listener)
+	require.True(t, ok)
+
+	typedConfig := l.GetFilterChains()[0].GetFilters()[0].GetTypedConfig()
+	require.NotNil(t, typedConfig)
+
+	managerConfig := &hcm.HttpConnectionManager{}
+	require.NoError(t, typedConfig.UnmarshalTo(managerConfig))
+
+	wildcardFound := false
+	for _, vHost := range managerConfig.GetRouteConfig().GetVirtualHosts() {
+		for _, domain := range vHost.GetDomains() {
+			if domain == "*" {
+				wildcardFound = true
+				gotCluster := vHost.GetRoutes()[0].GetRoute().GetCluster()
+				assert.Equal(t, "my-hub__alpha_4317", gotCluster)
+			}
+		}
+	}
+	assert.True(t, wildcardFound, "expected wildcard virtual host")
+}
+
 func newCollector(name, namespace string, _ uint32) otelv1beta1.OpenTelemetryCollector {
 	return newCollectorWithProtocol(name, namespace, "grpc", 4317)
+}
+
+func newCollectorWithApp(name, namespace, appLabel string) otelv1beta1.OpenTelemetryCollector {
+	c := newCollectorWithProtocol(name, namespace, "grpc", 4317)
+	c.Labels = map[string]string{"app": appLabel}
+	return c
 }
 
 func newCollectorWithProtocol(name, namespace, protocol string, port uint32) otelv1beta1.OpenTelemetryCollector {
