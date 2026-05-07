@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -308,4 +309,107 @@ func TestDeriveShadowConfigAddsDebugExporterWhenEnabled(t *testing.T) {
 	debugCfg, ok := shadow.Exporters.Object["debug"].(map[string]any)
 	require.True(t, ok)
 	assert.Equal(t, "detailed", debugCfg["verbosity"])
+}
+
+func TestRewriteExporterConfig_ReplacesExporter(t *testing.T) {
+	t.Parallel()
+
+	originalCfg := map[string]any{
+		"endpoint": "old:4317",
+	}
+
+	rules := []exporterRewriteRule{
+		{
+			MatchExporterPrefixes:  []string{"otlp/old"},
+			ReplaceWithExporterKey: "otlphttp/new",
+			ReplaceWithExporterValue: map[string]any{
+				"endpoint": "new:4318",
+			},
+			Set: map[string]any{
+				"headers.test": "value-{{ namespace }}",
+			},
+		},
+	}
+
+	vars := map[string]string{
+		"namespace": "mdai-test",
+	}
+
+	newName, newCfg := rewriteExporterConfig("otlp/old", originalCfg, rules, vars)
+
+	assert.Equal(t, "otlphttp/new", newName)
+
+	cfgMap, ok := newCfg.(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "new:4318", cfgMap["endpoint"])
+
+	// Ensure `Set` applies against the newly replaced config object
+	headers, ok := cfgMap["headers"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "value-mdai-test", headers["test"])
+}
+
+func TestDeriveShadowConfig_ReplacesExportersInPipelines(t *testing.T) {
+	// Not parallel. Modifies global variables.
+	originalYAML := telemetryValidationExporterRewritesYAML
+	t.Cleanup(func() {
+		telemetryValidationExporterRewritesYAML = originalYAML
+		exporterRewritesOnce = sync.Once{}
+		cachedExporterRewrites = exporterRewriteConfig{}
+	})
+
+	telemetryValidationExporterRewritesYAML = `
+rules:
+  - name: replace-otlp
+    match_exporter_prefixes: ["otlp/original"]
+    replace_with_exporter_key: "otlphttp/replaced"
+    replace_with_exporter_value:
+      endpoint: "http://replaced:4318"
+`
+	exporterRewritesOnce = sync.Once{}
+	cachedExporterRewrites = exporterRewriteConfig{}
+
+	cfg := otelv1beta1.Config{
+		Receivers: otelv1beta1.AnyConfig{Object: map[string]any{
+			"datadog": map[string]any{"endpoint": "0.0.0.0:8126"},
+		}},
+		Exporters: otelv1beta1.AnyConfig{Object: map[string]any{
+			"otlp/original": map[string]any{"endpoint": "old:4317"},
+			"debug":         map[string]any{},
+		}},
+		Service: otelv1beta1.Service{Pipelines: map[string]*otelv1beta1.Pipeline{
+			"traces": {
+				Receivers: []string{"datadog"},
+				Exporters: []string{"otlp/original", "debug"},
+			},
+		}},
+	}
+
+	shadow := deriveShadowConfig(shadowConfigParams{
+		Config:         cfg,
+		Signals:        []hubv1.TelemetrySignal{hubv1.TelemetrySignalTraces},
+		Namespace:      "mdai",
+		ValidationName: "sample",
+		CollectorName:  "gateway",
+	})
+
+	// Assert the exporter map correctly swapped keys
+	_, hasOld := shadow.Exporters.Object["otlp/original"]
+	assert.False(t, hasOld, "old exporter config block should be replaced")
+
+	replacedExporter, hasNew := shadow.Exporters.Object["otlphttp/replaced"]
+	require.True(t, hasNew, "new exporter config block should be present")
+
+	replacedMap, ok := replacedExporter.(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "http://replaced:4318", replacedMap["endpoint"])
+
+	// Assert the pipeline strings swapped perfectly without injecting ""
+	pipeline := shadow.Service.Pipelines["traces"]
+	require.NotNil(t, pipeline)
+
+	assert.Contains(t, pipeline.Exporters, "otlphttp/replaced")
+	assert.NotContains(t, pipeline.Exporters, "otlp/original")
+	assert.NotContains(t, pipeline.Exporters, "")
+	assert.Len(t, pipeline.Exporters, 1)
 }
