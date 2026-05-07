@@ -62,6 +62,12 @@ spec:
                       additionalProperties:
                         type: string
                       type: object
+                    replaceWithExporterKey:
+                      type: string
+                    replaceWithExporterValue:
+                      additionalProperties:
+                        x-kubernetes-preserve-unknown-fields: true
+                      type: object
                     set:
                       additionalProperties:
                         x-kubernetes-preserve-unknown-fields: true
