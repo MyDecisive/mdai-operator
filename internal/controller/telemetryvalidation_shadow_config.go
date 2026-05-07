@@ -120,7 +120,23 @@ func deriveShadowConfig(params shadowConfigParams) otelv1beta1.Config {
 			perExporterVars := map[string]string{}
 			maps.Copy(perExporterVars, templateVars)
 			perExporterVars["exporter"] = exporterName
-			exporters[exporterName] = rewriteExporterConfig(exporterName, cfgExporter, rewriteRules, perExporterVars)
+			newName, newExporter := rewriteExporterConfig(exporterName, cfgExporter, rewriteRules, perExporterVars)
+			exporters[newName] = newExporter
+			if newName != exporterName {
+				for pipelineName, pipeline := range shadow.Service.Pipelines {
+					newExporters := make([]string, 0, len(pipeline.Exporters))
+
+					for _, exporter := range pipeline.Exporters {
+						if exporter == exporterName {
+							newExporters = append(newExporters, newName)
+						} else {
+							newExporters = append(newExporters, exporter)
+						}
+					}
+					pipeline.Exporters = newExporters
+					shadow.Service.Pipelines[pipelineName] = pipeline
+				}
+			}
 		}
 	}
 	shadow.Exporters.Object = exporters
