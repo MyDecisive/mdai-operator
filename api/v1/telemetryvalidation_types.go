@@ -51,6 +51,12 @@ type TelemetryValidationExporterRewrite struct {
 
 	// +optional
 	ReplaceStrings map[string]string `json:"replaceStrings,omitempty"`
+
+	// +optional
+	ReplaceWithExporterKey string `json:"replaceWithExporterKey,omitempty"`
+
+	// +optional
+	ReplaceWithExporterValue map[string]apiextensionsv1.JSON `json:"replaceWithExporterValue,omitempty"`
 }
 
 type TelemetryValidationSpec struct {

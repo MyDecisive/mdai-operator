@@ -190,10 +190,12 @@ func mergedExporterRewriteRules(tvRules []hubv1.TelemetryValidationExporterRewri
 
 	for _, tvRule := range tvRules {
 		converted := exporterRewriteRule{
-			Name:                  tvRule.Name,
-			MatchExporterPrefixes: append([]string(nil), tvRule.MatchExporterPrefixes...),
-			Set:                   mapStringInterface(tvRule.Set),
-			ReplaceStrings:        mapStringString(tvRule.ReplaceStrings),
+			Name:                     tvRule.Name,
+			MatchExporterPrefixes:    append([]string(nil), tvRule.MatchExporterPrefixes...),
+			Set:                      mapStringInterface(tvRule.Set),
+			ReplaceStrings:           mapStringString(tvRule.ReplaceStrings),
+			ReplaceWithExporterKey:   tvRule.ReplaceWithExporterKey,
+			ReplaceWithExporterValue: mapStringInterface(tvRule.ReplaceWithExporterValue),
 		}
 		if len(converted.MatchExporterPrefixes) == 0 {
 			continue
@@ -251,6 +253,16 @@ func mergeExporterRewriteRule(base exporterRewriteRule, override exporterRewrite
 			merged.ReplaceStrings = map[string]string{}
 		}
 		maps.Copy(merged.ReplaceStrings, override.ReplaceStrings)
+	}
+	if override.ReplaceWithExporterKey != "" {
+		merged.ReplaceWithExporterKey = override.ReplaceWithExporterKey
+	}
+	if len(base.ReplaceWithExporterValue) > 0 || len(override.ReplaceWithExporterValue) > 0 {
+		merged.ReplaceWithExporterValue = maps.Clone(base.ReplaceWithExporterValue)
+		if merged.ReplaceWithExporterValue == nil {
+			merged.ReplaceWithExporterValue = map[string]any{}
+		}
+		maps.Copy(merged.ReplaceWithExporterValue, override.ReplaceWithExporterValue)
 	}
 	return merged
 }
