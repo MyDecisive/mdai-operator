@@ -111,6 +111,7 @@ func deriveShadowConfig(params shadowConfigParams) otelv1beta1.Config {
 		"telemetry_validation": params.ValidationName,
 		"collector":            params.CollectorName,
 	}
+	processedExporterReplacements := []string{}
 	for exporterName := range referencedExporters {
 		if exporterName == "debug" {
 			exporters[exporterName] = debugExporterConfig(shadow.Exporters.Object["debug"])
@@ -121,21 +122,31 @@ func deriveShadowConfig(params shadowConfigParams) otelv1beta1.Config {
 			maps.Copy(perExporterVars, templateVars)
 			perExporterVars["exporter"] = exporterName
 			newName, newExporter := rewriteExporterConfig(exporterName, cfgExporter, rewriteRules, perExporterVars)
+			if newName == "" {
+				newExporters := shadow.Exporters.Object
+				delete(newExporters, exporterName)
+				shadow.Exporters.Object = newExporters
+			}
 			exporters[newName] = newExporter
-			if newName != exporterName {
+			if newName != exporterName && !slices.Contains(processedExporterReplacements, newName) {
 				for pipelineName, pipeline := range shadow.Service.Pipelines {
 					newExporters := make([]string, 0, len(pipeline.Exporters))
 
 					for _, exporter := range pipeline.Exporters {
-						if exporter == exporterName {
-							newExporters = append(newExporters, newName)
-						} else {
-							newExporters = append(newExporters, exporter)
+						// if we removed a config in the replace process, don't let it be present in the exporters list
+						_, hasExporterInConfig := shadow.Exporters.Object[exporter]
+						if hasExporterInConfig {
+							if exporter == exporterName {
+								newExporters = append(newExporters, newName)
+							} else {
+								newExporters = append(newExporters, exporter)
+							}
 						}
 					}
 					pipeline.Exporters = newExporters
 					shadow.Service.Pipelines[pipelineName] = pipeline
 				}
+				processedExporterReplacements = append(processedExporterReplacements, newName)
 			}
 		}
 	}
