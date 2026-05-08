@@ -80,6 +80,9 @@ type TelemetryValidationSpec struct {
 	ExporterRewrites []TelemetryValidationExporterRewrite `json:"exporterRewrites,omitempty"`
 
 	// +optional
+	ExporterRewritesKeepUnmatched bool `json:"exporterRewritesKeepUnmatched,omitempty"`
+
+	// +optional
 	ShadowDebugExporterEnabled bool `json:"shadowDebugExporterEnabled,omitempty"`
 }
 

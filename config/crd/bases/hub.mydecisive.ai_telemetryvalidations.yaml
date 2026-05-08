@@ -76,6 +76,8 @@ spec:
                   - matchExporterPrefixes
                   type: object
                 type: array
+              exporterRewritesKeepUnmatched:
+                type: boolean
               runID:
                 description: |-
                   RunID identifies a run of the TelemetryValidation. When omitted, the controller generates one and records it in

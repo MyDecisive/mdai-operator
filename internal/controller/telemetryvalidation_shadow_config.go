@@ -53,6 +53,7 @@ type shadowConfigParams struct {
 	CollectorName              string
 	ExporterRewriteRules       []hubv1.TelemetryValidationExporterRewrite
 	ShadowDebugExporterEnabled bool
+	KeepUnmatchedExporters     bool
 }
 
 func deriveShadowConfig(params shadowConfigParams) otelv1beta1.Config {
@@ -78,7 +79,13 @@ func deriveShadowConfig(params shadowConfigParams) otelv1beta1.Config {
 			continue
 		}
 
-		targetExporters := exportersMatchingRewriteRules(pipeline.Exporters, rewriteRules)
+		var targetExporters []string
+		if params.KeepUnmatchedExporters {
+			targetExporters = append([]string(nil), pipeline.Exporters...)
+		} else {
+			targetExporters = exportersMatchingRewriteRules(pipeline.Exporters, rewriteRules)
+		}
+
 		if params.ShadowDebugExporterEnabled {
 			targetExporters = appendExporterOnce(targetExporters, "debug")
 		}
@@ -111,46 +118,50 @@ func deriveShadowConfig(params shadowConfigParams) otelv1beta1.Config {
 		"telemetry_validation": params.ValidationName,
 		"collector":            params.CollectorName,
 	}
-	processedExporterReplacements := []string{}
+
+	exporterNameMap := make(map[string]string)
 	for exporterName := range referencedExporters {
 		if exporterName == "debug" {
 			exporters[exporterName] = debugExporterConfig(shadow.Exporters.Object["debug"])
+			exporterNameMap[exporterName] = exporterName
 			continue
 		}
+
 		if cfgExporter, ok := shadow.Exporters.Object[exporterName]; ok {
 			perExporterVars := map[string]string{}
 			maps.Copy(perExporterVars, templateVars)
 			perExporterVars["exporter"] = exporterName
-			newName, newExporter := rewriteExporterConfig(exporterName, cfgExporter, rewriteRules, perExporterVars)
-			if newName == "" {
-				newExporters := shadow.Exporters.Object
-				delete(newExporters, exporterName)
-				shadow.Exporters.Object = newExporters
-			}
-			exporters[newName] = newExporter
-			if newName != exporterName && !slices.Contains(processedExporterReplacements, newName) {
-				for pipelineName, pipeline := range shadow.Service.Pipelines {
-					newExporters := make([]string, 0, len(pipeline.Exporters))
 
-					for _, exporter := range pipeline.Exporters {
-						// if we removed a config in the replace process, don't let it be present in the exporters list
-						_, hasExporterInConfig := shadow.Exporters.Object[exporter]
-						if hasExporterInConfig {
-							if exporter == exporterName {
-								newExporters = append(newExporters, newName)
-							} else {
-								newExporters = append(newExporters, exporter)
-							}
-						}
-					}
-					pipeline.Exporters = newExporters
-					shadow.Service.Pipelines[pipelineName] = pipeline
-				}
-				processedExporterReplacements = append(processedExporterReplacements, newName)
+			newName, newExporter := rewriteExporterConfig(exporterName, cfgExporter, rewriteRules, perExporterVars)
+
+			// Only add if it hasn't been explicitly deleted
+			if newName != "" {
+				exporters[newName] = newExporter
+				exporterNameMap[exporterName] = newName
 			}
 		}
 	}
 	shadow.Exporters.Object = exporters
+
+	for pipelineName, pipeline := range shadow.Service.Pipelines {
+		newExporters := make([]string, 0, len(pipeline.Exporters))
+		seen := make(map[string]bool)
+
+		for _, oldExporter := range pipeline.Exporters {
+			newExporterName, ok := exporterNameMap[oldExporter]
+			if !ok {
+				// If it wasn't in referencedExporters or got deleted (newName == ""), we skip it
+				continue
+			}
+
+			if !seen[newExporterName] {
+				seen[newExporterName] = true
+				newExporters = append(newExporters, newExporterName)
+			}
+		}
+		pipeline.Exporters = newExporters
+		shadow.Service.Pipelines[pipelineName] = pipeline
+	}
 
 	return shadow
 }

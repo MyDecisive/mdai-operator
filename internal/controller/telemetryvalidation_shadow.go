@@ -131,6 +131,7 @@ func (r *TelemetryValidationReconciler) reconcileShadowCollector(
 			CollectorName:              source.Name,
 			ExporterRewriteRules:       validation.Spec.ExporterRewrites,
 			ShadowDebugExporterEnabled: validation.Spec.ShadowDebugExporterEnabled,
+			KeepUnmatchedExporters:     validation.Spec.ExporterRewritesKeepUnmatched,
 		})
 		shadow.Spec = spec
 		return nil

@@ -386,11 +386,12 @@ rules:
 	}
 
 	shadow := deriveShadowConfig(shadowConfigParams{
-		Config:         cfg,
-		Signals:        []hubv1.TelemetrySignal{hubv1.TelemetrySignalTraces},
-		Namespace:      "mdai",
-		ValidationName: "sample",
-		CollectorName:  "gateway",
+		Config:                     cfg,
+		Signals:                    []hubv1.TelemetrySignal{hubv1.TelemetrySignalTraces},
+		Namespace:                  "mdai",
+		ValidationName:             "sample",
+		CollectorName:              "gateway",
+		ShadowDebugExporterEnabled: true,
 	})
 
 	// Assert the exporter map correctly swapped keys
@@ -411,9 +412,8 @@ rules:
 	assert.Contains(t, pipeline.Exporters, "otlphttp/replaced")
 	assert.NotContains(t, pipeline.Exporters, "otlp/original")
 	assert.NotContains(t, pipeline.Exporters, "")
-	assert.Len(t, pipeline.Exporters, 1)
+	assert.Len(t, pipeline.Exporters, 2)
 }
-
 func TestDeriveShadowConfig_CollapsesMultipleMatchingExporters(t *testing.T) {
 	// Not parallel. Modifies global variables.
 	originalYAML := telemetryValidationExporterRewritesYAML
@@ -431,17 +431,15 @@ rules:
     replace_with_exporter_value:
       endpoint: "http://collapsed:4318"
 `
-	exporterRewritesOnce = sync.Once{}
-	cachedExporterRewrites = exporterRewriteConfig{}
 
-	cfg := otelv1beta1.Config{
+	baseCfg := otelv1beta1.Config{
 		Receivers: otelv1beta1.AnyConfig{Object: map[string]any{
 			"datadog": map[string]any{"endpoint": "0.0.0.0:8126"},
 		}},
 		Exporters: otelv1beta1.AnyConfig{Object: map[string]any{
 			"otlp/1":  map[string]any{"endpoint": "old1:4317"},
 			"otlp/2":  map[string]any{"endpoint": "old2:4317"},
-			"datadog": map[string]any{},
+			"datadog": map[string]any{"api": map[string]any{"key": "x"}},
 		}},
 		Service: otelv1beta1.Service{Pipelines: map[string]*otelv1beta1.Pipeline{
 			"traces": {
@@ -455,38 +453,55 @@ rules:
 		}},
 	}
 
-	shadow := deriveShadowConfig(shadowConfigParams{
-		Config:         cfg,
-		Signals:        []hubv1.TelemetrySignal{hubv1.TelemetrySignalTraces, hubv1.TelemetrySignalLogs},
-		Namespace:      "mdai",
-		ValidationName: "sample",
-		CollectorName:  "gateway",
+	t.Run("KeepUnmatchedExporters = false (strips unmatched)", func(t *testing.T) {
+		exporterRewritesOnce = sync.Once{}
+		cachedExporterRewrites = exporterRewriteConfig{}
+
+		shadow := deriveShadowConfig(shadowConfigParams{
+			Config:                 baseCfg,
+			Signals:                []hubv1.TelemetrySignal{hubv1.TelemetrySignalTraces, hubv1.TelemetrySignalLogs},
+			Namespace:              "mdai",
+			ValidationName:         "sample",
+			CollectorName:          "gateway",
+			KeepUnmatchedExporters: false,
+		})
+
+		_, hasDatadog := shadow.Exporters.Object["datadog"]
+		require.False(t, hasDatadog, "unmatched exporter must be stripped")
+
+		tracesPipeline := shadow.Service.Pipelines["traces"]
+		require.NotNil(t, tracesPipeline)
+		assert.Contains(t, tracesPipeline.Exporters, "otlphttp/collapsed")
+		assert.NotContains(t, tracesPipeline.Exporters, "datadog")
+		assert.Len(t, tracesPipeline.Exporters, 1)
 	})
 
-	// Assert global exporters map
-	_, hasOld1 := shadow.Exporters.Object["otlp/1"]
-	assert.False(t, hasOld1, "otlp/1 should be removed")
-	_, hasOld2 := shadow.Exporters.Object["otlp/2"]
-	assert.False(t, hasOld2, "otlp/2 should be removed")
+	t.Run("KeepUnmatchedExporters = true (retains unmatched)", func(t *testing.T) {
+		exporterRewritesOnce = sync.Once{}
+		cachedExporterRewrites = exporterRewriteConfig{}
 
-	_, hasNew := shadow.Exporters.Object["otlphttp/collapsed"]
-	require.True(t, hasNew, "collapsed exporter must exist")
-	_, hasDatadog := shadow.Exporters.Object["datadog"]
-	require.True(t, hasDatadog, "unmatched exporter must remain")
+		shadow := deriveShadowConfig(shadowConfigParams{
+			Config:                 baseCfg,
+			Signals:                []hubv1.TelemetrySignal{hubv1.TelemetrySignalTraces, hubv1.TelemetrySignalLogs},
+			Namespace:              "mdai",
+			ValidationName:         "sample",
+			CollectorName:          "gateway",
+			KeepUnmatchedExporters: true,
+		})
 
-	// Assert traces pipeline deduplicated the collapsed exporters
-	tracesPipeline := shadow.Service.Pipelines["traces"]
-	require.NotNil(t, tracesPipeline)
-	assert.Contains(t, tracesPipeline.Exporters, "otlphttp/collapsed")
-	assert.Contains(t, tracesPipeline.Exporters, "datadog")
-	assert.NotContains(t, tracesPipeline.Exporters, "otlp/1")
-	assert.NotContains(t, tracesPipeline.Exporters, "otlp/2")
-	assert.Len(t, tracesPipeline.Exporters, 2, "Should deduplicate collapsed exporters and keep datadog")
+		_, hasOld1 := shadow.Exporters.Object["otlp/1"]
+		assert.False(t, hasOld1, "otlp/1 should be replaced")
 
-	// Assert logs pipeline correctly replaced otlp/2
-	logsPipeline := shadow.Service.Pipelines["logs"]
-	require.NotNil(t, logsPipeline)
-	assert.Contains(t, logsPipeline.Exporters, "otlphttp/collapsed")
-	assert.NotContains(t, logsPipeline.Exporters, "otlp/2")
-	assert.Len(t, logsPipeline.Exporters, 1)
+		_, hasNew := shadow.Exporters.Object["otlphttp/collapsed"]
+		require.True(t, hasNew, "collapsed exporter must exist")
+
+		_, hasDatadog := shadow.Exporters.Object["datadog"]
+		require.True(t, hasDatadog, "unmatched exporter must remain in the shadow config")
+
+		tracesPipeline := shadow.Service.Pipelines["traces"]
+		require.NotNil(t, tracesPipeline)
+		assert.Contains(t, tracesPipeline.Exporters, "otlphttp/collapsed")
+		assert.Contains(t, tracesPipeline.Exporters, "datadog")
+		assert.Len(t, tracesPipeline.Exporters, 2, "Should deduplicate collapsed exporters and retain datadog")
+	})
 }
