@@ -64,6 +64,12 @@ spec:
                       additionalProperties:
                         type: string
                       type: object
+                    replaceWithExporterKey:
+                      type: string
+                    replaceWithExporterValue:
+                      additionalProperties:
+                        x-kubernetes-preserve-unknown-fields: true
+                      type: object
                     set:
                       additionalProperties:
                         x-kubernetes-preserve-unknown-fields: true
@@ -72,6 +78,8 @@ spec:
                   - matchExporterPrefixes
                   type: object
                 type: array
+              exporterRewritesKeepUnmatched:
+                type: boolean
               runID:
                 description: |-
                   RunID identifies a run of the TelemetryValidation. When omitted, the controller generates one and records it in

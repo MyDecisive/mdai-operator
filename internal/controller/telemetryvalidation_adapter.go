@@ -86,6 +86,11 @@ func (c *TelemetryValidationAdapter) ensureRunIDResolved(ctx context.Context) (O
 }
 
 func (c *TelemetryValidationAdapter) ensureSynchronized(ctx context.Context) (OperationResult, error) {
+	if !c.validation.DeletionTimestamp.IsZero() {
+		c.logger.Info("TelemetryValidation is being deleted, skipping synchronization")
+		return ContinueProcessing()
+	}
+
 	validatorName, validatorServiceName, resolvedValidatorEndpoint, validatorIngressPort, err := c.reconciler.reconcileValidator(
 		ctx,
 		c.validation,

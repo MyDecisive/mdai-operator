@@ -9,3 +9,20 @@ rules:
       metrics.endpoint: "{{ validator_endpoint }}/observe/exporter/{{ namespace }}/{{ telemetry_validation }}/{{ collector }}/{{ exporter }}"
       logs.endpoint: "{{ validator_endpoint }}/observe/exporter/{{ namespace }}/{{ telemetry_validation }}/{{ collector }}/{{ exporter }}"
       traces.endpoint: "{{ validator_endpoint }}/observe/exporter/{{ namespace }}/{{ telemetry_validation }}/{{ collector }}/{{ exporter }}"
+  - name: loadbalancing-default
+    match_exporter_prefixes:
+      - loadbalancing
+    set:
+      api.site: "{{ validator_endpoint }}/observe/exporter/{{ namespace }}/{{ telemetry_validation }}/{{ collector }}/{{ exporter }}"
+      metrics.endpoint: "{{ validator_endpoint }}/observe/exporter/{{ namespace }}/{{ telemetry_validation }}/{{ collector }}/{{ exporter }}"
+      logs.endpoint: "{{ validator_endpoint }}/observe/exporter/{{ namespace }}/{{ telemetry_validation }}/{{ collector }}/{{ exporter }}"
+      traces.endpoint: "{{ validator_endpoint }}/observe/exporter/{{ namespace }}/{{ telemetry_validation }}/{{ collector }}/{{ exporter }}"
+    replace_with_exporter_key: "datadog"
+    replace_with_exporter_value:
+      api:
+        key: whocares
+        fail_on_invalid_key: false
+      host_metadata:
+        enabled: false
+      hostname_detection_timeout: 2s
+
