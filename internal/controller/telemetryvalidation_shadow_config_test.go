@@ -414,6 +414,7 @@ rules:
 	assert.NotContains(t, pipeline.Exporters, "")
 	assert.Len(t, pipeline.Exporters, 2)
 }
+
 func TestDeriveShadowConfig_CollapsesMultipleMatchingExporters(t *testing.T) {
 	// Not parallel. Modifies global variables.
 	originalYAML := telemetryValidationExporterRewritesYAML
