@@ -13,6 +13,7 @@ import (
 	mdaiv1 "github.com/mydecisive/mdai-operator/api/v1"
 	"github.com/mydecisive/mdai-operator/internal/builder"
 	"github.com/prometheus/common/expfmt"
+	"github.com/prometheus/common/model"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -521,7 +522,7 @@ func (c MdaiReplayAdapter) getMetricValue(ctx context.Context, metricsUrl, metri
 }
 
 func extractMetricValueFromResponse(body io.Reader, metricName string) (float64, error) {
-	var parser expfmt.TextParser
+	parser := expfmt.NewTextParser(model.UTF8Validation)
 	metricFamilies, err := parser.TextToMetricFamilies(body)
 	if err != nil {
 		return 0, err

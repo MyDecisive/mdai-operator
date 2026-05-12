@@ -168,7 +168,7 @@ func (v *MdaiHubCustomValidator) Validate(mdaihub *mdaiv1.MdaiHub) (admission.Wa
 		allWarnings = append(allWarnings, "no `PrometheusAlerts` provided; MdaiHub will not setup alerts")
 	} else {
 		for _, evaluation := range evaluations {
-			if _, err := parser.ParseExpr(evaluation.Expr.StrVal); err != nil {
+			if _, err := parser.NewParser(parser.Options{}).ParseExpr(evaluation.Expr.StrVal); err != nil {
 				return allWarnings, err
 			}
 		}
