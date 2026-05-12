@@ -17,7 +17,7 @@ SHELL = /usr/bin/env bash -o pipefail
 .SHELLFLAGS = -ec
 
 # Update this version to match new release tag and run helm targets
-VERSION ?= 0.2.15
+VERSION ?= 0.2.16
 GOTOOLCHAIN ?= go1.25.0
 GO := CGO_ENABLED=0 GOTOOLCHAIN=$(GOTOOLCHAIN) go 
 GO_TEST := $(GO) test -count=1
@@ -317,6 +317,18 @@ local-deploy: tidy vendor generate manifests lint helm-update install
 	kind load docker-image $(IMG) --name mdai
 	$(MAKE) deploy IMG=$(IMG)
 	$(KUBECTL) rollout restart deployment mdai-operator-controller-manager -n mdai
+
+##@ Release
+
+.PHONY: bump-version
+bump-version: yq ## Bump version in all files. Usage: make bump-version NEW_VERSION=x.y.z
+	@[ -n "$(NEW_VERSION)" ] || { echo "Error: NEW_VERSION is required. Usage: make bump-version NEW_VERSION=x.y.z"; exit 1; }
+	@echo "Bumping version $(VERSION) → $(NEW_VERSION)"
+	@perl -pi -e 's/^VERSION \?= .*/VERSION ?= $(NEW_VERSION)/' Makefile
+	@$(YQ) -i '(.images[] | select(.name == "controller")).newTag = "$(NEW_VERSION)"' config/manager/kustomization.yaml
+	@$(YQ) -i '.version = "$(NEW_VERSION)" | .appVersion = "$(NEW_VERSION)"' $(CHART_PATH)/Chart.yaml
+	@$(YQ) -i '.controllerManager.manager.image.tag = "$(NEW_VERSION)"' $(CHART_PATH)/values.yaml
+	@echo "Done. Run 'make helm-update' to regenerate Helm chart artifacts and docs."
 
 LATEST_TAG := $(shell git describe --tags --abbrev=0 $(git rev-parse --abbrev-ref HEAD) | sed 's/^v//')
 CHART_VERSION ?= $(LATEST_TAG)
