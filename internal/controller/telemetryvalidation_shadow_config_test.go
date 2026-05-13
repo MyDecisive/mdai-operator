@@ -311,6 +311,129 @@ func TestDeriveShadowConfigAddsDebugExporterWhenEnabled(t *testing.T) {
 	assert.Equal(t, "detailed", debugCfg["verbosity"])
 }
 
+func TestDeriveShadowConfigRewritesLoadBalancingExportersWithoutDatadogExporter(t *testing.T) {
+	// Not parallel. Resets exporter rewrite cache.
+	originalYAML := telemetryValidationExporterRewritesYAML
+	t.Cleanup(func() {
+		telemetryValidationExporterRewritesYAML = originalYAML
+		exporterRewritesOnce = sync.Once{}
+		cachedExporterRewrites = exporterRewriteConfig{}
+	})
+	exporterRewritesOnce = sync.Once{}
+	cachedExporterRewrites = exporterRewriteConfig{}
+
+	cfg := otelv1beta1.Config{
+		Receivers: otelv1beta1.AnyConfig{Object: map[string]any{
+			"datadog": map[string]any{
+				"endpoint":     "0.0.0.0:8126",
+				"read_timeout": "60s",
+			},
+			"count/spans_by_facet": map[string]any{},
+		}},
+		Processors: &otelv1beta1.AnyConfig{Object: map[string]any{
+			"deltatocumulative":       map[string]any{},
+			"transform/add_dd_fields": map[string]any{"error_mode": "ignore"},
+		}},
+		Connectors: &otelv1beta1.AnyConfig{Object: map[string]any{
+			"count/spans_by_facet": map[string]any{},
+		}},
+		Exporters: otelv1beta1.AnyConfig{Object: map[string]any{
+			"loadbalancing/traces": map[string]any{
+				"routing_key": "traceID",
+				"resolver": map[string]any{
+					"dns": map[string]any{
+						"hostname": "sample-trace-sampling-collector.mdai.svc.cluster.local",
+						"port":     "4317",
+					},
+				},
+			},
+			"loadbalancing/logs": map[string]any{
+				"routing_key": "service",
+				"resolver": map[string]any{
+					"dns": map[string]any{
+						"hostname": "sample-log-sampling-collector.mdai.svc.cluster.local",
+						"port":     "4317",
+					},
+				},
+			},
+			"otlp_grpc/tracealyzer": map[string]any{
+				"endpoint": "mdai-tracealyzer.mdai.svc.cluster.local:4317",
+			},
+			"prometheus": map[string]any{
+				"endpoint": "0.0.0.0:8899",
+			},
+		}},
+		Service: otelv1beta1.Service{
+			Pipelines: map[string]*otelv1beta1.Pipeline{
+				"logs": {
+					Receivers:  []string{"datadog"},
+					Processors: []string{"transform/add_dd_fields"},
+					Exporters:  []string{"loadbalancing/logs"},
+				},
+				"traces": {
+					Receivers:  []string{"datadog"},
+					Processors: []string{"transform/add_dd_fields"},
+					Exporters:  []string{"loadbalancing/traces", "count/spans_by_facet", "otlp_grpc/tracealyzer"},
+				},
+				"metrics": {
+					Receivers:  []string{"count/spans_by_facet"},
+					Processors: []string{"deltatocumulative"},
+					Exporters:  []string{"prometheus"},
+				},
+			},
+			Telemetry: &otelv1beta1.AnyConfig{Object: map[string]any{
+				"resource": map[string]any{
+					"mdai_connection": "sample",
+					"service.name":    "sample-sampling-lb-collector",
+				},
+			}},
+		},
+	}
+
+	shadow := deriveShadowConfig(shadowConfigParams{
+		Config:         cfg,
+		Signals:        []hubv1.TelemetrySignal{hubv1.TelemetrySignalLogs, hubv1.TelemetrySignalTraces, hubv1.TelemetrySignalMetrics},
+		Namespace:      "mdai",
+		ValidationName: "gateway-tv",
+		CollectorName:  "sample-sampling-lb",
+	})
+
+	datadogReceiver, ok := shadow.Receivers.Object["datadog"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, true, datadogReceiver["include_metadata"])
+
+	logsPipeline := shadow.Service.Pipelines["logs"]
+	require.NotNil(t, logsPipeline)
+	assert.Equal(t, []string{"datadog"}, logsPipeline.Exporters)
+	assert.Contains(t, logsPipeline.Processors, correlationProcessorName)
+	assert.Contains(t, logsPipeline.Processors, correlationDDTagsProcessorName)
+
+	tracesPipeline := shadow.Service.Pipelines["traces"]
+	require.NotNil(t, tracesPipeline)
+	assert.Equal(t, []string{"datadog"}, tracesPipeline.Exporters)
+	assert.NotContains(t, tracesPipeline.Exporters, "count/spans_by_facet")
+	assert.NotContains(t, tracesPipeline.Exporters, "otlp_grpc/tracealyzer")
+	assert.Contains(t, tracesPipeline.Processors, correlationProcessorName)
+	assert.Contains(t, tracesPipeline.Processors, correlationDDTagsProcessorName)
+
+	assert.Nil(t, shadow.Service.Pipelines["metrics"], "prometheus-only metrics pipeline should be removed by default")
+
+	require.Len(t, shadow.Exporters.Object, 1)
+	exporterCfg, ok := shadow.Exporters.Object["datadog"].(map[string]any)
+	require.True(t, ok)
+	logsCfg, ok := exporterCfg["logs"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "http://mdai-fidelity-validator.mdai.svc.cluster.local:18081/observe/exporter/mdai/gateway-tv/sample-sampling-lb/loadbalancing/logs", logsCfg["endpoint"])
+	tracesCfg, ok := exporterCfg["traces"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "http://mdai-fidelity-validator.mdai.svc.cluster.local:18081/observe/exporter/mdai/gateway-tv/sample-sampling-lb/loadbalancing/traces", tracesCfg["endpoint"])
+
+	resourceCfg, ok := shadow.Service.Telemetry.Object["resource"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "sample-sampling-lb-shadow", resourceCfg["service.name"])
+	assert.Equal(t, "sample", resourceCfg["mdai_connection"])
+}
+
 func TestRewriteExporterConfig_ReplacesExporter(t *testing.T) {
 	t.Parallel()
 

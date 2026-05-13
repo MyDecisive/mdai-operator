@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	otelv1beta1 "github.com/open-telemetry/opentelemetry-operator/apis/v1beta1"
+	"k8s.io/apimachinery/pkg/runtime"
 
 	hubv1 "github.com/mydecisive/mdai-operator/api/v1"
 )
@@ -69,7 +70,7 @@ func deriveShadowConfig(params shadowConfigParams) otelv1beta1.Config {
 	}
 
 	filteredPipelines := make(map[string]*otelv1beta1.Pipeline)
-	referencedExporters := make(map[string]struct{})
+	exporterSignals := make(map[string]map[hubv1.TelemetrySignal]struct{})
 	for name, pipeline := range shadow.Service.Pipelines {
 		signal, ok := pipelineSignal(name)
 		if !ok {
@@ -105,7 +106,12 @@ func deriveShadowConfig(params shadowConfigParams) otelv1beta1.Config {
 		}
 		filteredPipelines[name] = &filtered
 		for _, exporterName := range targetExporters {
-			referencedExporters[exporterName] = struct{}{}
+			signals, ok := exporterSignals[exporterName]
+			if !ok {
+				signals = make(map[hubv1.TelemetrySignal]struct{})
+				exporterSignals[exporterName] = signals
+			}
+			signals[signal] = struct{}{}
 		}
 	}
 	shadow.Service.Pipelines = filteredPipelines
@@ -120,26 +126,37 @@ func deriveShadowConfig(params shadowConfigParams) otelv1beta1.Config {
 	}
 
 	exporterNameMap := make(map[string]string)
-	for exporterName := range referencedExporters {
+	for _, exporterName := range slices.Sorted(maps.Keys(exporterSignals)) {
 		if exporterName == "debug" {
 			exporters[exporterName] = debugExporterConfig(shadow.Exporters.Object["debug"])
 			exporterNameMap[exporterName] = exporterName
 			continue
 		}
 
-		if cfgExporter, ok := shadow.Exporters.Object[exporterName]; ok {
-			perExporterVars := map[string]string{}
-			maps.Copy(perExporterVars, templateVars)
-			perExporterVars["exporter"] = exporterName
-
-			newName, newExporter := rewriteExporterConfig(exporterName, cfgExporter, rewriteRules, perExporterVars)
-
-			// Only add if it hasn't been explicitly deleted
-			if newName != "" {
-				exporters[newName] = newExporter
-				exporterNameMap[exporterName] = newName
-			}
+		cfgExporter, ok := shadow.Exporters.Object[exporterName]
+		if !ok {
+			continue
 		}
+
+		perExporterVars := map[string]string{}
+		maps.Copy(perExporterVars, templateVars)
+		perExporterVars["exporter"] = exporterName
+
+		newName, newExporter := rewriteExporterConfig(exporterName, cfgExporter, rewriteRules, perExporterVars)
+		// Empty newName means the rule deleted this exporter.
+		if newName == "" {
+			continue
+		}
+		if rewriteLimitsToReferencedSignals(exporterName, rewriteRules) {
+			newExporter = limitExporterConfigToSignals(newExporter, exporterSignals[exporterName])
+		}
+
+		if existing, ok := exporters[newName]; ok {
+			exporters[newName] = mergeExporterConfig(existing, newExporter)
+		} else {
+			exporters[newName] = newExporter
+		}
+		exporterNameMap[exporterName] = newName
 	}
 	shadow.Exporters.Object = exporters
 
@@ -164,6 +181,51 @@ func deriveShadowConfig(params shadowConfigParams) otelv1beta1.Config {
 	}
 
 	return shadow
+}
+
+func rewriteLimitsToReferencedSignals(exporterName string, rules []exporterRewriteRule) bool {
+	return slices.ContainsFunc(matchingRewriteRules(exporterName, rules), func(r exporterRewriteRule) bool {
+		return r.LimitToReferencedSignals
+	})
+}
+
+func limitExporterConfigToSignals(raw any, signals map[hubv1.TelemetrySignal]struct{}) any {
+	cfg, ok := raw.(map[string]any)
+	if !ok || len(signals) == 0 {
+		return raw
+	}
+
+	limited := runtime.DeepCopyJSON(cfg)
+	for _, signal := range []hubv1.TelemetrySignal{
+		hubv1.TelemetrySignalMetrics,
+		hubv1.TelemetrySignalLogs,
+		hubv1.TelemetrySignalTraces,
+	} {
+		if _, ok := signals[signal]; !ok {
+			delete(limited, string(signal))
+		}
+	}
+	return limited
+}
+
+func mergeExporterConfig(existing, incoming any) any {
+	existingMap, _ := existing.(map[string]any)
+	incomingMap, _ := incoming.(map[string]any)
+	if existingMap == nil || incomingMap == nil {
+		return runtime.DeepCopyJSONValue(incoming)
+	}
+
+	merged := runtime.DeepCopyJSON(existingMap)
+	for key, incomingValue := range incomingMap {
+		existingNested, _ := merged[key].(map[string]any)
+		incomingNested, _ := incomingValue.(map[string]any)
+		if existingNested != nil && incomingNested != nil {
+			merged[key] = mergeExporterConfig(existingNested, incomingNested)
+			continue
+		}
+		merged[key] = runtime.DeepCopyJSONValue(incomingValue)
+	}
+	return merged
 }
 
 func debugExporterConfig(existing any) any {
