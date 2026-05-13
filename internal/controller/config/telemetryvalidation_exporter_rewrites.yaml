@@ -12,6 +12,7 @@ rules:
   - name: loadbalancing-default
     match_exporter_prefixes:
       - loadbalancing
+    limit_to_referenced_signals: true
     set:
       api.site: "{{ validator_endpoint }}/observe/exporter/{{ namespace }}/{{ telemetry_validation }}/{{ collector }}/{{ exporter }}"
       metrics.endpoint: "{{ validator_endpoint }}/observe/exporter/{{ namespace }}/{{ telemetry_validation }}/{{ collector }}/{{ exporter }}"

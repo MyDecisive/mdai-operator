@@ -10,6 +10,7 @@ import (
 	"sigs.k8s.io/yaml"
 
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 
 	hubv1 "github.com/mydecisive/mdai-operator/api/v1"
 )
@@ -33,19 +34,21 @@ type exporterRewriteRule struct {
 	ReplaceStrings           map[string]string `json:"replace_strings"`
 	ReplaceWithExporterKey   string            `json:"replace_with_exporter_key"`
 	ReplaceWithExporterValue map[string]any    `json:"replace_with_exporter_value,omitempty"`
+	LimitToReferencedSignals bool              `json:"limit_to_referenced_signals,omitempty"`
 }
 
 func rewriteExporterConfig(exporterName string, raw any, rules []exporterRewriteRule, templateVars map[string]string) (string, any) {
-	cfg, ok := raw.(map[string]any)
+	rawCfg, ok := raw.(map[string]any)
 	if !ok {
 		return exporterName, raw
 	}
+	cfg := runtime.DeepCopyJSON(rawCfg)
 
 	newName := exporterName
 	for _, rule := range matchingRewriteRules(exporterName, rules) {
 		if rule.ReplaceWithExporterKey != "" && rule.ReplaceWithExporterValue != nil {
 			newName = rule.ReplaceWithExporterKey
-			cfg = rule.ReplaceWithExporterValue
+			cfg = runtime.DeepCopyJSON(rule.ReplaceWithExporterValue)
 		}
 		for path, value := range rule.Set {
 			setNestedValue(cfg, path, resolveTemplateValues(value, templateVars))
