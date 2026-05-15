@@ -13,8 +13,9 @@ rules:
     match_exporter_prefixes:
       - loadbalancing
     limit_to_referenced_signals: true
+    keep_metrics_when_traces_referenced: true
     set:
-      api.site: "{{ validator_endpoint }}/observe/exporter/{{ namespace }}/{{ telemetry_validation }}/{{ collector }}/{{ exporter }}"
+      api.site: "validator.invalid"
       metrics.endpoint: "{{ validator_endpoint }}/observe/exporter/{{ namespace }}/{{ telemetry_validation }}/{{ collector }}/{{ exporter }}"
       logs.endpoint: "{{ validator_endpoint }}/observe/exporter/{{ namespace }}/{{ telemetry_validation }}/{{ collector }}/{{ exporter }}"
       traces.endpoint: "{{ validator_endpoint }}/observe/exporter/{{ namespace }}/{{ telemetry_validation }}/{{ collector }}/{{ exporter }}"
@@ -26,4 +27,3 @@ rules:
       host_metadata:
         enabled: false
       hostname_detection_timeout: 2s
-

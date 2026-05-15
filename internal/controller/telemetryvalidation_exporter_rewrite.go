@@ -35,6 +35,11 @@ type exporterRewriteRule struct {
 	ReplaceWithExporterKey   string            `json:"replace_with_exporter_key"`
 	ReplaceWithExporterValue map[string]any    `json:"replace_with_exporter_value,omitempty"`
 	LimitToReferencedSignals bool              `json:"limit_to_referenced_signals,omitempty"`
+	// KeepMetricsWhenTracesReferenced overrides LimitToReferencedSignals for the metrics
+	// block when the exporter participates in a traces pipeline. Honored only when the
+	// rewrite targets the Datadog exporter, which emits APM stats through its metrics
+	// ingestion path; without the metrics block it falls back to api.site.
+	KeepMetricsWhenTracesReferenced bool `json:"keep_metrics_when_traces_referenced,omitempty"`
 }
 
 func rewriteExporterConfig(exporterName string, raw any, rules []exporterRewriteRule, templateVars map[string]string) (string, any) {

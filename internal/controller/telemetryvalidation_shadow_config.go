@@ -22,6 +22,7 @@ const (
 	correlationDDTagKey              = "correlation_id:"
 	deleteMetricDDTagsStatement      = `delete_key(attributes, "ddtags") where attributes["ddtags"] != nil`
 	deleteMetricTagsStatement        = `delete_key(attributes, "tags") where attributes["tags"] != nil`
+	datadogExporterKey               = "datadog"
 )
 
 func ddTagsSetStatement() string {
@@ -148,7 +149,11 @@ func deriveShadowConfig(params shadowConfigParams) otelv1beta1.Config {
 			continue
 		}
 		if rewriteLimitsToReferencedSignals(exporterName, rewriteRules) {
-			newExporter = limitExporterConfigToSignals(newExporter, exporterSignals[exporterName])
+			// The metrics-preservation flag only applies when the rewrite actually
+			// produces a Datadog exporter; an override that retargets the rule must
+			// not inherit Datadog-specific behavior.
+			keepMetrics := newName == datadogExporterKey && rewriteKeepsMetricsWhenTracesReferenced(exporterName, rewriteRules)
+			newExporter = limitExporterConfigToSignals(newExporter, exporterSignals[exporterName], keepMetrics)
 		}
 
 		if existing, ok := exporters[newName]; ok {
@@ -189,18 +194,29 @@ func rewriteLimitsToReferencedSignals(exporterName string, rules []exporterRewri
 	})
 }
 
-func limitExporterConfigToSignals(raw any, signals map[hubv1.TelemetrySignal]struct{}) any {
+func rewriteKeepsMetricsWhenTracesReferenced(exporterName string, rules []exporterRewriteRule) bool {
+	return slices.ContainsFunc(matchingRewriteRules(exporterName, rules), func(r exporterRewriteRule) bool {
+		return r.KeepMetricsWhenTracesReferenced
+	})
+}
+
+func limitExporterConfigToSignals(raw any, signals map[hubv1.TelemetrySignal]struct{}, keepMetricsWhenTracesReferenced bool) any {
 	cfg, ok := raw.(map[string]any)
 	if !ok || len(signals) == 0 {
 		return raw
 	}
 
 	limited := runtime.DeepCopyJSON(cfg)
+	_, tracesReferenced := signals[hubv1.TelemetrySignalTraces]
+	keepMetrics := keepMetricsWhenTracesReferenced && tracesReferenced
 	for _, signal := range []hubv1.TelemetrySignal{
 		hubv1.TelemetrySignalMetrics,
 		hubv1.TelemetrySignalLogs,
 		hubv1.TelemetrySignalTraces,
 	} {
+		if signal == hubv1.TelemetrySignalMetrics && keepMetrics {
+			continue
+		}
 		if _, ok := signals[signal]; !ok {
 			delete(limited, string(signal))
 		}
