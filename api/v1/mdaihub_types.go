@@ -36,7 +36,7 @@ type JoinTransformer struct {
 // Variable defines mdai variable
 // +kubebuilder:validation:XValidation:rule="self.type == 'meta' ? self.dataType in ['metaHashSet', 'metaPriorityList'] : self.dataType in ['string', 'int', 'boolean', 'set', 'map']",messageExpression="\"variable '\" + self.key + \"': dataType is not allowed for type specified\"",reason="FieldValueInvalid"
 type Variable struct {
-	// Key The key for which this variable's managed value is assigned. Will also be used as the environment variable name for variables of type "string"
+	// Key The key for which this variable's managed value is assigned.
 	// +kubebuilder:validation:Pattern:="^[a-zA-Z_][a-zA-Z0-9_]*$"
 	// +kubebuilder:validation:MinLength=1
 	// +kubebuilder:validation:MaxLength=63
