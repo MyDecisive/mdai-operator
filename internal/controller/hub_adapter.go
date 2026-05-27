@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"regexp"
 	"slices"
 	"strings"
 	"time"
@@ -449,27 +450,96 @@ func (c HubAdapter) syncComputedConfigMapsAndRestart(ctx context.Context, envMap
 		return RequeueWithError(err)
 	}
 
-	// determine which namespaces to restart
-	namespaceToRestart := map[string]struct{}{}
+	envCMName := c.mdaiCR.Name + envConfigMapNamePostfix
+	// Dedup by namespace: one Get-then-update per namespace, so we can diff against the
+	// pre-update Data before createOrUpdateEnvConfigMap overwrites it.
+	changedByNamespace := map[string]map[string]struct{}{}
 	for _, collector := range collectors {
-		result, _, err := c.createOrUpdateEnvConfigMap(ctx, envMap, envConfigMapNamePostfix, collector.Namespace)
+		ns := collector.Namespace
+		if _, seen := changedByNamespace[ns]; seen {
+			continue
+		}
+		existing := &corev1.ConfigMap{}
+		var oldData map[string]string
+		if err := c.client.Get(ctx, client.ObjectKey{Namespace: ns, Name: envCMName}, existing); err == nil {
+			oldData = existing.Data
+		} else if !apierrors.IsNotFound(err) {
+			return RequeueWithError(err)
+		}
+
+		result, _, err := c.createOrUpdateEnvConfigMap(ctx, envMap, envConfigMapNamePostfix, ns)
 		if err != nil {
 			return RequeueWithError(err)
 		}
 		if result == controllerutil.OperationResultCreated || result == controllerutil.OperationResultUpdated {
-			namespaceToRestart[collector.Namespace] = struct{}{}
+			changedByNamespace[ns] = diffEnvMapKeys(oldData, envMap)
+		} else {
+			changedByNamespace[ns] = nil
 		}
 	}
 
-	// trigger restarts
 	for _, collector := range collectors {
-		if _, shouldRestart := namespaceToRestart[collector.Namespace]; shouldRestart {
-			if err := c.restartCollectorAndAudit(ctx, collector, envMap); err != nil {
-				return RequeueWithError(err)
-			}
+		changed := changedByNamespace[collector.Namespace]
+		if len(changed) == 0 {
+			continue
+		}
+		consumed, wildcard := extractCollectorEnvRefs(collector)
+		if !wildcard && !anyKeyInSet(changed, consumed) {
+			c.logger.Info("Skipping collector restart: no consumed variables changed",
+				"name", collector.Name, "namespace", collector.Namespace)
+			continue
+		}
+		if err := c.restartCollectorAndAudit(ctx, collector, envMap); err != nil {
+			return RequeueWithError(err)
 		}
 	}
 	return ContinueProcessing()
+}
+
+var (
+	envRefStrict = regexp.MustCompile(`\$\{env:([A-Za-z_][A-Za-z0-9_]*)(?::-[^}]*)?\}`)
+	envRefAny    = regexp.MustCompile(`\$\{env:`)
+)
+
+// extractCollectorEnvRefs returns the env-var names referenced by the collector's OTEL config.
+// The wildcard return is set when the config contains references the parser cannot resolve
+// (yaml error, indirection like `${env:${PREFIX}_FOO}`); callers must then treat the collector
+// as consuming every variable.
+func extractCollectorEnvRefs(collector v1beta1.OpenTelemetryCollector) (map[string]struct{}, bool) {
+	cfg, err := collector.Spec.Config.Yaml()
+	if err != nil {
+		return nil, true
+	}
+	strictMatches := envRefStrict.FindAllStringSubmatch(cfg, -1)
+	refs := make(map[string]struct{}, len(strictMatches))
+	for _, m := range strictMatches {
+		refs[m[1]] = struct{}{}
+	}
+	return refs, len(envRefAny.FindAllStringIndex(cfg, -1)) > len(strictMatches)
+}
+
+func diffEnvMapKeys(old, current map[string]string) map[string]struct{} {
+	changed := map[string]struct{}{}
+	for k, v := range current {
+		if oldV, ok := old[k]; !ok || oldV != v {
+			changed[k] = struct{}{}
+		}
+	}
+	for k := range old {
+		if _, ok := current[k]; !ok {
+			changed[k] = struct{}{}
+		}
+	}
+	return changed
+}
+
+func anyKeyInSet(keys, set map[string]struct{}) bool {
+	for k := range keys {
+		if _, ok := set[k]; ok {
+			return true
+		}
+	}
+	return false
 }
 
 func buildVariableSchemaEnvMap(variables []mdaiv1.Variable) (map[string]string, error) {

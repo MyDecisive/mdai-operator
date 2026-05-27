@@ -458,6 +458,16 @@ var _ = Describe("Manager", Ordered, func() {
 			Expect(metricsOutput).To(ContainSubstring(`controller_runtime_reconcile_panics_total{controller="mdaihub"} 0`))
 		})
 
+		It("applies a managed OTEL CR whose config references no variables", func() {
+			By("applying a managed OTEL CR with no ${env:...} references in its config")
+			applyCollector := func(g Gomega) {
+				cmd := exec.Command("kubectl", "apply", "-f", "test/e2e/testdata/collector-no-envrefs.yaml", "-n", otelNamespace)
+				_, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+			}
+			Eventually(applyCollector).Should(Succeed())
+		})
+
 		It("should create the config map for variables", func() {
 			By("verifying the config map for variables exists")
 			configMapExists("mdaihub-sample-variables", otelNamespace)
@@ -850,6 +860,7 @@ var _ = Describe("Manager", Ordered, func() {
 			By("executing the valkey-cli command to update the service-list variable")
 
 			initialRevision := getOtelDeploymentRevision("gateway-collector", otelNamespace)
+			noEnvRefsInitialRevision := getOtelDeploymentRevision("gateway-no-envrefs-collector", otelNamespace)
 
 			portForwardCmd := exec.Command("kubectl", "port-forward", "--namespace", "default",
 				"svc/valkey-primary", "6379:6379")
@@ -984,6 +995,13 @@ var _ = Describe("Manager", Ordered, func() {
 				g.Expect(updatedRevision).To(Equal(1))
 			}
 			Eventually(verifyUnmanagedOtelDeployment).Should(Succeed())
+
+			By("validating that a managed collector with no env references was not restarted")
+			verifyNoEnvRefsOtelDeployment := func(g Gomega) {
+				updatedRevision := getOtelDeploymentRevision("gateway-no-envrefs-collector", otelNamespace)
+				g.Expect(updatedRevision).To(Equal(noEnvRefsInitialRevision))
+			}
+			Consistently(verifyNoEnvRefsOtelDeployment, "20s", "5s").Should(Succeed())
 		})
 
 		It("can remove all variables from an existing MdaiHub CR", func() {
@@ -1257,6 +1275,11 @@ metadata:
 			_, err := utils.Run(cmd)
 			Expect(err).NotTo(HaveOccurred())
 
+			cmd = exec.Command("kubectl", "delete", "-f", "test/e2e/testdata/collector-no-envrefs.yaml",
+				"-n", otelNamespace, "--wait=false", "--ignore-not-found=true")
+			_, err = utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+
 			By("waiting for the collector to be fully removed")
 			verifyGone := func(g Gomega) {
 				cmd := exec.Command("kubectl", "get", "opentelemetrycollector", "gateway", "-n", otelNamespace)
@@ -1264,6 +1287,13 @@ metadata:
 				g.Expect(err).To(HaveOccurred(), "expected collector to be gone")
 			}
 			Eventually(verifyGone, "60s", "3s").Should(Succeed())
+
+			verifyNoEnvRefsGone := func(g Gomega) {
+				cmd := exec.Command("kubectl", "get", "opentelemetrycollector", "gateway-no-envrefs", "-n", otelNamespace)
+				_, err := utils.Run(cmd)
+				g.Expect(err).To(HaveOccurred(), "expected collector to be gone")
+			}
+			Eventually(verifyNoEnvRefsGone, "60s", "3s").Should(Succeed())
 		})
 	})
 })

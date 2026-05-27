@@ -617,8 +617,7 @@ spec:
                       type: string
                     key:
                       description: Key The key for which this variable's managed value
-                        is assigned. Will also be used as the environment variable
-                        name for variables of type "string"
+                        is assigned.
                       maxLength: 63
                       minLength: 1
                       pattern: ^[a-zA-Z_][a-zA-Z0-9_]*$

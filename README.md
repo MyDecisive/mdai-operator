@@ -21,7 +21,7 @@ MDAI k8s operator:
 ```
 - For now assuming hub names are unique across all namespaces
 - valkey key name has a structure: `variable/some_hub_name/some_variable_name`
-- Updates to variables are applied by triggering the collector’s restart
+- Updates to variables trigger a rolling restart of the collectors whose config references the changed variable via `${env:NAME}` or `${env:NAME:-default}`. Requires OTEL collector v0.96.0 or later; collectors using the legacy bare `${NAME}` syntax are not detected by the restart filter.
 - Supports the built-in ValKey storage type for variables 
 - Creates immutable meta variables that have references to other variables
 

@@ -45,12 +45,26 @@ func newTestMdaiCR() *mdaiv1.MdaiHub {
 }
 
 func newFakeClientForCR(cr *mdaiv1.MdaiHub, scheme *runtime.Scheme) client.Client {
+	// Endpoint uses an indirection pattern so extractCollectorEnvRefs returns wildcard;
+	// shared-fixture tests expect the collector to restart on any variable change.
 	collector := &v1beta1.OpenTelemetryCollector{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "collector1",
 			Namespace: "default",
 			Labels: map[string]string{
 				LabelMdaiHubName: "test-hub",
+			},
+		},
+		Spec: v1beta1.OpenTelemetryCollectorSpec{
+			Config: v1beta1.Config{
+				Receivers: v1beta1.AnyConfig{
+					Object: map[string]any{
+						"otlp": map[string]any{"endpoint": "${env:${PREFIX}_ENDPOINT}"},
+					},
+				},
+				Exporters: v1beta1.AnyConfig{
+					Object: map[string]any{"debug": map[string]any{}},
+				},
 			},
 		},
 	}
@@ -1011,4 +1025,214 @@ func TestEnsureAutomationsSynchronized(t *testing.T) {
 
 	err = fakeClient.Get(ctx, types.NamespacedName{Name: configMapName, Namespace: "default"}, cm)
 	assert.True(t, apierrors.IsNotFound(err))
+}
+
+func TestDiffEnvMapKeys(t *testing.T) {
+	tests := []struct {
+		name    string
+		old     map[string]string
+		current map[string]string
+		want    []string
+	}{
+		{
+			name:    "identical",
+			old:     map[string]string{"A": "1", "B": "2"},
+			current: map[string]string{"A": "1", "B": "2"},
+			want:    nil,
+		},
+		{
+			name:    "added",
+			old:     map[string]string{"A": "1"},
+			current: map[string]string{"A": "1", "B": "2"},
+			want:    []string{"B"},
+		},
+		{
+			name:    "removed",
+			old:     map[string]string{"A": "1", "B": "2"},
+			current: map[string]string{"A": "1"},
+			want:    []string{"B"},
+		},
+		{
+			name:    "value changed",
+			old:     map[string]string{"A": "1"},
+			current: map[string]string{"A": "2"},
+			want:    []string{"A"},
+		},
+		{
+			name:    "old nil treats every current key as new",
+			old:     nil,
+			current: map[string]string{"A": "1", "B": "2"},
+			want:    []string{"A", "B"},
+		},
+		{
+			name:    "current nil treats every old key as removed",
+			old:     map[string]string{"A": "1"},
+			current: nil,
+			want:    []string{"A"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := diffEnvMapKeys(tt.old, tt.current)
+			gotKeys := make([]string, 0, len(got))
+			for k := range got {
+				gotKeys = append(gotKeys, k)
+			}
+			assert.ElementsMatch(t, tt.want, gotKeys)
+		})
+	}
+}
+
+func TestExtractCollectorEnvRefs(t *testing.T) {
+	collectorWithReceiverValue := func(value string) v1beta1.OpenTelemetryCollector {
+		return v1beta1.OpenTelemetryCollector{
+			Spec: v1beta1.OpenTelemetryCollectorSpec{
+				Config: v1beta1.Config{
+					Receivers: v1beta1.AnyConfig{
+						Object: map[string]any{
+							"otlp": map[string]any{"endpoint": value},
+						},
+					},
+					Exporters: v1beta1.AnyConfig{
+						Object: map[string]any{"debug": map[string]any{}},
+					},
+				},
+			},
+		}
+	}
+
+	tests := []struct {
+		name         string
+		collector    v1beta1.OpenTelemetryCollector
+		wantRefs     []string
+		wantWildcard bool
+	}{
+		{
+			name:         "no env refs",
+			collector:    collectorWithReceiverValue("0.0.0.0:4317"),
+			wantRefs:     nil,
+			wantWildcard: false,
+		},
+		{
+			name:         "simple ref",
+			collector:    collectorWithReceiverValue("${env:OTEL_ENDPOINT}"),
+			wantRefs:     []string{"OTEL_ENDPOINT"},
+			wantWildcard: false,
+		},
+		{
+			name:         "ref with default",
+			collector:    collectorWithReceiverValue("${env:OTEL_ENDPOINT:-0.0.0.0:4317}"),
+			wantRefs:     []string{"OTEL_ENDPOINT"},
+			wantWildcard: false,
+		},
+		{
+			name:         "indirection falls back to wildcard",
+			collector:    collectorWithReceiverValue("${env:${PREFIX}_ENDPOINT}"),
+			wantRefs:     nil,
+			wantWildcard: true,
+		},
+		{
+			name: "multiple refs across components",
+			collector: v1beta1.OpenTelemetryCollector{
+				Spec: v1beta1.OpenTelemetryCollectorSpec{
+					Config: v1beta1.Config{
+						Receivers: v1beta1.AnyConfig{
+							Object: map[string]any{
+								"otlp": map[string]any{"endpoint": "${env:OTEL_RECEIVER_ENDPOINT}"},
+							},
+						},
+						Exporters: v1beta1.AnyConfig{
+							Object: map[string]any{
+								"datadog": map[string]any{"api_key": "${env:DD_API_KEY:-x}"},
+							},
+						},
+					},
+				},
+			},
+			wantRefs:     []string{"OTEL_RECEIVER_ENDPOINT", "DD_API_KEY"},
+			wantWildcard: false,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			gotRefs, gotWildcard := extractCollectorEnvRefs(tt.collector)
+			assert.Equal(t, tt.wantWildcard, gotWildcard)
+
+			gotKeys := make([]string, 0, len(gotRefs))
+			for k := range gotRefs {
+				gotKeys = append(gotKeys, k)
+			}
+			assert.ElementsMatch(t, tt.wantRefs, gotKeys)
+		})
+	}
+}
+
+func TestSyncComputedConfigMapsAndRestart_RestartsOnlyReferencingCollectors(t *testing.T) {
+	ctx := t.Context()
+	scheme := createTestScheme()
+	mdaiCR := newTestMdaiCR()
+
+	collectorWithRef := func(name, ref string) *v1beta1.OpenTelemetryCollector {
+		return &v1beta1.OpenTelemetryCollector{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      name,
+				Namespace: "default",
+				Labels:    map[string]string{LabelMdaiHubName: mdaiCR.Name},
+			},
+			Spec: v1beta1.OpenTelemetryCollectorSpec{
+				Config: v1beta1.Config{
+					Receivers: v1beta1.AnyConfig{
+						Object: map[string]any{"otlp": map[string]any{"endpoint": ref}},
+					},
+					Exporters: v1beta1.AnyConfig{
+						Object: map[string]any{"debug": map[string]any{}},
+					},
+				},
+			},
+		}
+	}
+	overlap := collectorWithRef("c-overlap", "${env:OVERLAP}")
+	other := collectorWithRef("c-other", "${env:OTHER}")
+
+	existingEnvCM := &v1core.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      mdaiCR.Name + envConfigMapNamePostfix,
+			Namespace: "default",
+		},
+		Data: map[string]string{"OVERLAP": "old", "OTHER": "x"},
+	}
+
+	fakeClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(mdaiCR, overlap, other, existingEnvCM).
+		Build()
+	recorder := record.NewFakeRecorder(10)
+
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	fakeValkey := mock.NewClient(ctrl)
+	// Exactly one collector should restart, so exactly one audit event should be emitted.
+	fakeValkey.EXPECT().Do(ctx, XaddMatcher{Type: "collector_restart"}).
+		Return(mock.Result(mock.ValkeyString(""))).Times(1)
+
+	adapter := NewHubAdapter(mdaiCR, logr.Discard(), zap.NewNop(), fakeClient, recorder, scheme, fakeValkey, time.Duration(30))
+
+	envMap := map[string]string{"OVERLAP": "new", "OTHER": "x"}
+	opResult, err := adapter.syncComputedConfigMapsAndRestart(ctx, envMap)
+	require.NoError(t, err)
+	assert.Equal(t, ContinueOperationResult(), opResult)
+
+	restartAnnotation := "kubectl.kubernetes.io/restartedAt"
+
+	got := &v1beta1.OpenTelemetryCollector{}
+	require.NoError(t, fakeClient.Get(ctx, types.NamespacedName{Name: "c-overlap", Namespace: "default"}, got))
+	if ann, ok := got.Annotations[restartAnnotation]; !ok || strings.TrimSpace(ann) == "" {
+		t.Errorf("expected c-overlap to be restarted, annotations: %v", got.Annotations)
+	}
+
+	got = &v1beta1.OpenTelemetryCollector{}
+	require.NoError(t, fakeClient.Get(ctx, types.NamespacedName{Name: "c-other", Namespace: "default"}, got))
+	if _, ok := got.Annotations[restartAnnotation]; ok {
+		t.Errorf("expected c-other NOT to be restarted, annotations: %v", got.Annotations)
+	}
 }
