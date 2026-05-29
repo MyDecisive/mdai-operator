@@ -21,7 +21,7 @@ type TelemetryValidationCollectorRef struct {
 
 type TelemetryValidationValidatorSpec struct {
 	// +optional
-	// +kubebuilder:default:="ghcr.io/mydecisive/mdai-fidelity-validator:0.1.0"
+	// +kubebuilder:default:="ghcr.io/mydecisive/mdai-fidelity-validator:0.1.2"
 	Image string `json:"image,omitempty"`
 
 	// +optional

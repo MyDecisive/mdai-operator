@@ -100,7 +100,7 @@ spec:
                   fieldMappingYAML:
                     type: string
                   image:
-                    default: ghcr.io/mydecisive/mdai-fidelity-validator:0.1.0
+                    default: ghcr.io/mydecisive/mdai-fidelity-validator:0.1.2
                     type: string
                   port:
                     default: 18081
