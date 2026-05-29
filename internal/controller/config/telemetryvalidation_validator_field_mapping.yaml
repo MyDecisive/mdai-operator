@@ -79,13 +79,13 @@ signals:
       - "suffix:.value"
     service:
       - service
-      - "contains:.tags[|tag:service"
+      - "contains:tags[|tag:service"
     env:
       - env
-      - "contains:.tags[|tag:env"
+      - "contains:tags[|tag:env"
     correlation_id:
       - correlation_id
-      - "contains:.tags[|tag:correlation_id"
+      - "contains:tags[|tag:correlation_id"
 exporters:
   datadog:
     signals:
