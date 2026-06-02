@@ -6,6 +6,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/go-logr/logr"
 	otelv1beta1 "github.com/open-telemetry/opentelemetry-operator/apis/v1beta1"
 	"k8s.io/apimachinery/pkg/runtime"
 
@@ -56,6 +57,7 @@ type shadowConfigParams struct {
 	ExporterRewriteRules       []hubv1.TelemetryValidationExporterRewrite
 	ShadowDebugExporterEnabled bool
 	KeepUnmatchedExporters     bool
+	Logger                     logr.Logger
 }
 
 func deriveShadowConfig(params shadowConfigParams) otelv1beta1.Config {
@@ -88,11 +90,16 @@ func deriveShadowConfig(params shadowConfigParams) otelv1beta1.Config {
 			targetExporters = exportersMatchingRewriteRules(pipeline.Exporters, rewriteRules)
 		}
 
+		if len(targetExporters) == 0 {
+			params.Logger.Info("shadow pipeline dropped: no exporters matched rewrite rules",
+				"pipeline", name,
+				"exporters", pipeline.Exporters,
+			)
+			continue
+		}
+
 		if params.ShadowDebugExporterEnabled {
 			targetExporters = appendExporterOnce(targetExporters, "debug")
-		}
-		if len(targetExporters) == 0 {
-			continue
 		}
 
 		filtered := *pipeline
