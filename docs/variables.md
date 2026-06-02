@@ -69,6 +69,7 @@ The dataType field specifies the kind of data a variable holds.
    These types hold a single value.   
    `string`: A simple string of text. Can be used to store complex data like YAML or JSON as a string.   
    `int`: An integer value. Stored as a string in Valkey.   
+   `float`: A 64-bit floating-point value. Stored as a string in Valkey. Writers are responsible for using a canonical serialization (e.g., the shortest round-trippable form) so reconciliation diffs do not fire on equivalent values that happen to be formatted differently.   
    `boolean`: A boolean value. Stored as "0" (false) or "1" (true) in Valkey.   
 ### Collection Types
    These types hold multiple values.   

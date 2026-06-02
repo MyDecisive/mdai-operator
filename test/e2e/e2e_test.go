@@ -477,7 +477,7 @@ var _ = Describe("Manager", Ordered, func() {
 			By("verifying the config map content for variables defaults")
 			verifyConfigMap := func(g Gomega) {
 				data := getDataFromMap(g, "mdaihub-sample-variables", otelNamespace)
-				g.Expect(data).To(HaveLen(8))
+				g.Expect(data).To(HaveLen(9))
 				g.Expect(data["ATTRIBUTES"]).To(Equal("{}\n"))
 				g.Expect(data["SEVERITY_FILTERS_BY_LEVEL"]).To(Equal("{}\n"))
 				g.Expect(data["SERVICE_LIST_2_CSV"]).To(Equal(""))
@@ -486,6 +486,9 @@ var _ = Describe("Manager", Ordered, func() {
 				g.Expect(data["SERVICE_LIST_REGEX"]).To(Equal(""))
 				g.Expect(data["SERVICE_LIST_CSV_MANUAL"]).To(Equal(""))
 				g.Expect(data["SERVICE_LIST_REGEX_MANUAL"]).To(Equal(""))
+				// MANUAL_FILTER carries the declared `default: ""` — surfaced now that
+				// the operator materializes defaults into the env-var ConfigMap.
+				g.Expect(data["MANUAL_FILTER"]).To(Equal(""))
 			}
 			Eventually(verifyConfigMap).Should(Succeed())
 
@@ -1334,11 +1337,13 @@ func verifyVariableSchemaConfigMap(g Gomega, data map[string]any) {
 	g.Expect(manualFilter["dataType"]).To(Equal("string"))
 	g.Expect(manualFilter["storageType"]).To(Equal("mdai-valkey"))
 	g.Expect(manualFilter).To(HaveKey("serializeAs"))
+	g.Expect(manualFilter).To(HaveKeyWithValue("default", ""))
 	g.Expect(manualFilter).NotTo(HaveKey("value"))
 
 	serviceListManual := getSchemaEntryFromConfigMapData(g, data, "service_list_manual")
 	g.Expect(serviceListManual["type"]).To(Equal("manual"))
 	g.Expect(serviceListManual["dataType"]).To(Equal("set"))
+	g.Expect(serviceListManual).NotTo(HaveKey("default"))
 	g.Expect(serviceListManual).NotTo(HaveKey("value"))
 
 	myHashSet := getSchemaEntryFromConfigMapData(g, data, "my_hash_set")

@@ -19,6 +19,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
+	"github.com/mydecisive/mdai-data-core/variables"
 	mdaiv1 "github.com/mydecisive/mdai-operator/api/v1"
 	ctrl "sigs.k8s.io/controller-runtime"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
@@ -457,20 +458,56 @@ func isValidURL(s string) bool {
 	return u.Host != ""
 }
 
+func validateVariableDefault(varIndex *field.Path, variable mdaiv1.Variable) field.ErrorList {
+	if variable.Default == nil {
+		return nil
+	}
+	defaultPath := varIndex.Child("default")
+	if variable.Default.Raw == nil {
+		return field.ErrorList{field.Invalid(defaultPath, "null", "default must not be null; omit the field to express no default")}
+	}
+	if variable.Type != mdaiv1.VariableTypeManual {
+		return field.ErrorList{field.Forbidden(defaultPath, "defaults are only allowed for manual variables")}
+	}
+	if err := validateDefaultAgainstDataType(variable.DataType, variable.Default.Raw); err != nil {
+		return field.ErrorList{field.Invalid(defaultPath, string(variable.Default.Raw), err.Error())}
+	}
+	return nil
+}
+
+func validateDefaultAgainstDataType(dt mdaiv1.VariableDataType, raw []byte) error {
+	switch dt {
+	case mdaiv1.VariableDataTypeString,
+		mdaiv1.VariableDataTypeInt,
+		mdaiv1.VariableDataTypeFloat,
+		mdaiv1.VariableDataTypeBoolean:
+		_, err := variables.CanonicalizeScalar(raw, dt)
+		return err
+	case mdaiv1.VariableDataTypeSet:
+		_, err := variables.CanonicalizeSet(raw)
+		return err
+	case mdaiv1.VariableDataTypeMap:
+		_, err := variables.CanonicalizeMap(raw)
+		return err
+	default:
+		return fmt.Errorf("unsupported dataType %q", dt)
+	}
+}
+
 func (*MdaiHubCustomValidator) validateVariables(mdaihub *mdaiv1.MdaiHub) (admission.Warnings, field.ErrorList) {
 	warnings := admission.Warnings{}
 	errs := field.ErrorList{}
 	keys := map[string]struct{}{}
 	exportedVariableNames := map[string]struct{}{}
 
-	variables := mdaihub.Spec.Variables
-	if len(variables) == 0 {
+	specVars := mdaihub.Spec.Variables
+	if len(specVars) == 0 {
 		return append(warnings, "variables are not specified"), nil
 	}
 
 	vPath := field.NewPath("spec", "variables")
 
-	for i, variable := range variables {
+	for i, variable := range specVars {
 		varIndex := vPath.Index(i)
 
 		if variable.StorageType != mdaiv1.VariableSourceTypeBuiltInValkey {
@@ -498,6 +535,8 @@ func (*MdaiHubCustomValidator) validateVariables(mdaihub *mdaiv1.MdaiHub) (admis
 		} else if len(refs) > 0 {
 			errs = append(errs, field.Forbidden(varIndex.Child("variableRefs"), "not supported for non-meta variables"))
 		}
+
+		errs = append(errs, validateVariableDefault(varIndex, variable)...)
 
 		if variable.SerializeAs != nil {
 			for j, with := range *variable.SerializeAs {

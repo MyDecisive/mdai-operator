@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/go-logr/logr"
+	vars "github.com/mydecisive/mdai-data-core/variables"
 	mdaiv1 "github.com/mydecisive/mdai-operator/api/v1"
 	"github.com/open-telemetry/opentelemetry-operator/apis/v1beta1"
 	prometheusv1 "github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring/v1"
@@ -21,6 +22,7 @@ import (
 	"go.uber.org/zap"
 	appsv1 "k8s.io/api/apps/v1"
 	v1core "k8s.io/api/core/v1"
+	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -363,6 +365,8 @@ func TestBuildVariableSchemaEnvMap(t *testing.T) {
 	assert.False(t, hasManualRefs)
 	_, hasManualSerializeAs := manualPayload["serializeAs"]
 	assert.False(t, hasManualSerializeAs)
+	_, hasManualDefault := manualPayload["default"]
+	assert.False(t, hasManualDefault, "no default declared → field omitted")
 
 	computedPayload := map[string]any{}
 	require.NoError(t, json.Unmarshal([]byte(schemaMap["computed_var"]), &computedPayload))
@@ -372,6 +376,156 @@ func TestBuildVariableSchemaEnvMap(t *testing.T) {
 	metaPayload := variableSchemaConfigMapEntry{}
 	require.NoError(t, json.Unmarshal([]byte(schemaMap["meta_var"]), &metaPayload))
 	assert.Equal(t, []string{"first", "second"}, metaPayload.VariableRefs)
+}
+
+func TestHandleComputedVariable_AppliesDefault(t *testing.T) {
+	ctx := t.Context()
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	fakeValkey := mock.NewClient(ctrl)
+	dataAdapter := vars.NewValkeyAdapter(fakeValkey, zap.NewNop())
+
+	cr := newTestMdaiCR()
+	adapter := HubAdapter{mdaiCR: cr, logger: logr.Discard(), zapLogger: zap.NewNop()}
+
+	cases := []struct {
+		name        string
+		variable    mdaiv1.Variable
+		valkeyStub  func()
+		expectedKey string
+		expectedVal string
+		expectNoKey bool
+	}{
+		{
+			name: "int default applied on absent key",
+			variable: mdaiv1.Variable{
+				Key:         "sampling_rate",
+				Type:        mdaiv1.VariableTypeManual,
+				DataType:    mdaiv1.VariableDataTypeInt,
+				StorageType: mdaiv1.VariableSourceTypeBuiltInValkey,
+				Default:     &apiextensionsv1.JSON{Raw: []byte(`100`)},
+				SerializeAs: &[]mdaiv1.Serializer{{Name: "SAMPLING_RATE"}},
+			},
+			valkeyStub: func() {
+				fakeValkey.EXPECT().Do(ctx, fakeValkey.B().Get().Key(VariableKeyPrefix+cr.Name+"/sampling_rate").Build()).
+					Return(mock.Result(mock.ValkeyNil()))
+			},
+			expectedKey: "SAMPLING_RATE",
+			expectedVal: "100",
+		},
+		{
+			name: "set default applied on empty set",
+			variable: mdaiv1.Variable{
+				Key:         "allowed_services",
+				Type:        mdaiv1.VariableTypeManual,
+				DataType:    mdaiv1.VariableDataTypeSet,
+				StorageType: mdaiv1.VariableSourceTypeBuiltInValkey,
+				Default:     &apiextensionsv1.JSON{Raw: []byte(`["svc-a","svc-b"]`)},
+				SerializeAs: &[]mdaiv1.Serializer{
+					{Name: "ALLOWED_SERVICES", Transformers: []mdaiv1.VariableTransformer{
+						{Type: mdaiv1.TransformerTypeJoin, Join: &mdaiv1.JoinTransformer{Delimiter: ","}},
+					}},
+				},
+			},
+			valkeyStub: func() {
+				fakeValkey.EXPECT().Do(ctx, fakeValkey.B().Smembers().Key(VariableKeyPrefix+cr.Name+"/allowed_services").Build()).
+					Return(mock.Result(mock.ValkeyArray()))
+			},
+			expectedKey: "ALLOWED_SERVICES",
+			expectedVal: "svc-a,svc-b",
+		},
+		{
+			name: "map default applied on empty hash with numeric reparse",
+			variable: mdaiv1.Variable{
+				Key:         "batch",
+				Type:        mdaiv1.VariableTypeManual,
+				DataType:    mdaiv1.VariableDataTypeMap,
+				StorageType: mdaiv1.VariableSourceTypeBuiltInValkey,
+				Default:     &apiextensionsv1.JSON{Raw: []byte(`{"size":"100","timeout":"15s"}`)},
+				SerializeAs: &[]mdaiv1.Serializer{{Name: "BATCH"}},
+			},
+			valkeyStub: func() {
+				fakeValkey.EXPECT().Do(ctx, fakeValkey.B().Hgetall().Key(VariableKeyPrefix+cr.Name+"/batch").Build()).
+					Return(mock.Result(mock.ValkeyMap(map[string]valkey.ValkeyMessage{})))
+			},
+			expectedKey: "BATCH",
+			expectedVal: "size: 100\ntimeout: 15s\n",
+		},
+		{
+			name: "scalar no default + absent key emits no env var",
+			variable: mdaiv1.Variable{
+				Key:         "unset_var",
+				Type:        mdaiv1.VariableTypeManual,
+				DataType:    mdaiv1.VariableDataTypeString,
+				StorageType: mdaiv1.VariableSourceTypeBuiltInValkey,
+				SerializeAs: &[]mdaiv1.Serializer{{Name: "UNSET_VAR"}},
+			},
+			valkeyStub: func() {
+				fakeValkey.EXPECT().Do(ctx, fakeValkey.B().Get().Key(VariableKeyPrefix+cr.Name+"/unset_var").Build()).
+					Return(mock.Result(mock.ValkeyNil()))
+			},
+			expectedKey: "UNSET_VAR",
+			expectNoKey: true,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			tc.valkeyStub()
+			envMap := map[string]string{}
+			require.NoError(t, adapter.handleComputedVariable(ctx, dataAdapter, tc.variable, envMap))
+			if tc.expectNoKey {
+				assert.NotContains(t, envMap, tc.expectedKey)
+				return
+			}
+			assert.Equal(t, tc.expectedVal, envMap[tc.expectedKey])
+		})
+	}
+}
+
+func TestHandleComputedVariable_StoredValueWinsOverDefault(t *testing.T) {
+	ctx := t.Context()
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	fakeValkey := mock.NewClient(ctrl)
+	dataAdapter := vars.NewValkeyAdapter(fakeValkey, zap.NewNop())
+
+	cr := newTestMdaiCR()
+	adapter := HubAdapter{mdaiCR: cr, logger: logr.Discard(), zapLogger: zap.NewNop()}
+
+	variable := mdaiv1.Variable{
+		Key:         "sampling_rate",
+		Type:        mdaiv1.VariableTypeManual,
+		DataType:    mdaiv1.VariableDataTypeInt,
+		StorageType: mdaiv1.VariableSourceTypeBuiltInValkey,
+		Default:     &apiextensionsv1.JSON{Raw: []byte(`100`)},
+		SerializeAs: &[]mdaiv1.Serializer{{Name: "SAMPLING_RATE"}},
+	}
+	fakeValkey.EXPECT().Do(ctx, fakeValkey.B().Get().Key(VariableKeyPrefix+cr.Name+"/sampling_rate").Build()).
+		Return(mock.Result(mock.ValkeyString("50")))
+
+	envMap := map[string]string{}
+	require.NoError(t, adapter.handleComputedVariable(ctx, dataAdapter, variable, envMap))
+	assert.Equal(t, "50", envMap["SAMPLING_RATE"])
+}
+
+func TestBuildVariableSchemaEnvMap_PropagatesDefault(t *testing.T) {
+	variables := []mdaiv1.Variable{
+		{
+			Key:         "with_default",
+			Type:        mdaiv1.VariableTypeManual,
+			DataType:    mdaiv1.VariableDataTypeInt,
+			StorageType: mdaiv1.VariableSourceTypeBuiltInValkey,
+			Default:     &apiextensionsv1.JSON{Raw: []byte(`100`)},
+		},
+	}
+
+	schemaMap, err := buildVariableSchemaEnvMap(variables)
+	require.NoError(t, err)
+
+	payload := map[string]json.RawMessage{}
+	require.NoError(t, json.Unmarshal([]byte(schemaMap["with_default"]), &payload))
+	assert.JSONEq(t, `100`, string(payload["default"]))
 }
 
 func TestEnsureVariableSynced(t *testing.T) {

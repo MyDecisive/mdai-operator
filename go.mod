@@ -4,6 +4,10 @@ go 1.25.0
 
 godebug default=go1.25
 
+// TEMPORARY: pointing at local data-core for the variables.DataType migration.
+// Remove once data-core releases a tagged version including variables/types.go and bump the require above.
+replace github.com/mydecisive/mdai-data-core => ../mdai-data-core
+
 require (
 	dario.cat/mergo v1.0.2
 	github.com/cenkalti/backoff/v5 v5.0.3

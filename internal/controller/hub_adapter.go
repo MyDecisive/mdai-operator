@@ -10,6 +10,7 @@ import (
 	"os"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -25,6 +26,7 @@ import (
 	"github.com/valkey-io/valkey-go"
 
 	corev1 "k8s.io/api/core/v1"
+	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -34,6 +36,8 @@ import (
 	"k8s.io/client-go/tools/record"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+
+	"gopkg.in/yaml.v3"
 )
 
 const (
@@ -76,6 +80,7 @@ type variableSchemaConfigMapEntry struct {
 	StorageType  mdaiv1.VariableStorageType `json:"storageType"`
 	VariableRefs []string                   `json:"variableRefs,omitempty"`
 	SerializeAs  *[]mdaiv1.Serializer       `json:"serializeAs,omitempty"`
+	Default      *apiextensionsv1.JSON      `json:"default,omitempty"`
 }
 
 func NewHubAdapter(
@@ -324,36 +329,65 @@ func (c HubAdapter) deletePrometheusRule(ctx context.Context) error {
 }
 
 func (c HubAdapter) handleComputedVariable(ctx context.Context, dataAdapter *vars.ValkeyAdapter, variable mdaiv1.Variable, envMap map[string]string) error {
+	res, err := vars.Resolve(ctx, dataAdapter, c.mdaiCR.Name, variable.Key, variable.DataType, defaultRawIfDeclared(variable))
+	if err != nil {
+		return err
+	}
+
 	//nolint: exhaustive
 	switch variable.DataType {
 	case mdaiv1.VariableDataTypeSet:
-		valueAsSlice, err := dataAdapter.GetSetAsStringSlice(ctx, variable.Key, c.mdaiCR.Name)
-		if err != nil {
-			return err
-		}
-		c.applySetTransformation(variable, envMap, valueAsSlice)
+		slice, _ := res.Value.([]string)
+		c.applySetTransformation(variable, envMap, slice)
 	case mdaiv1.VariableDataTypeString, mdaiv1.VariableDataTypeInt, mdaiv1.VariableDataTypeBoolean, mdaiv1.VariableDataTypeFloat:
-		// int is represented as string in Valkey, we assume writer guarantee the variable type is correct
-		// boolean is represented as string in Valkey: false or true, we assume writer guarantee the variable type is correct
-		value, found, err := dataAdapter.GetString(ctx, variable.Key, c.mdaiCR.Name)
-		if err != nil {
-			return err
-		}
-		if !found {
+		if !res.Found {
 			return nil
 		}
-		c.applySerializerToString(variable, envMap, value)
+		scalar, _ := res.Value.(string)
+		c.applySerializerToString(variable, envMap, scalar)
 	case mdaiv1.VariableDataTypeMap:
-		value, err := dataAdapter.GetMapAsString(ctx, variable.Key, c.mdaiCR.Name)
+		hash, _ := res.Value.(map[string]string)
+		rendered, err := renderMapForCollectorEnv(hash)
 		if err != nil {
 			return err
 		}
-		c.applySerializerToString(variable, envMap, value)
+		c.applySerializerToString(variable, envMap, rendered)
 	default:
 		c.logger.Error(fmt.Errorf("%w: %s", errUnsupportedVariableDataType, variable.DataType), errUnsupportedVariableDataType.Error(), "key", variable.Key)
 	}
 
 	return nil
+}
+
+func defaultRawIfDeclared(variable mdaiv1.Variable) json.RawMessage {
+	if variable.Default == nil {
+		return nil
+	}
+	return json.RawMessage(variable.Default.Raw)
+}
+
+// renderMapForCollectorEnv mirrors variables.GetMapAsString's opportunistic
+// int/float reparse so YAML values are typed when they look numeric. Preserves
+// the env-var format collectors observe today regardless of whether the value
+// came from Valkey or a declared default.
+func renderMapForCollectorEnv(hash map[string]string) (string, error) {
+	data := make(map[string]any, len(hash))
+	for k, v := range hash {
+		if i, err := strconv.Atoi(v); err == nil {
+			data[k] = i
+			continue
+		}
+		if f, err := strconv.ParseFloat(v, 64); err == nil {
+			data[k] = f
+			continue
+		}
+		data[k] = v
+	}
+	out, err := yaml.Marshal(data)
+	if err != nil {
+		return "", fmt.Errorf("render map: %w", err)
+	}
+	return string(out), nil
 }
 
 func (c HubAdapter) handleMetaVariable(ctx context.Context, dataAdapter *vars.ValkeyAdapter, variable mdaiv1.Variable, envMap map[string]string) error {
@@ -550,6 +584,7 @@ func buildVariableSchemaEnvMap(variables []mdaiv1.Variable) (map[string]string, 
 			DataType:    variable.DataType,
 			StorageType: variable.StorageType,
 			SerializeAs: variable.SerializeAs,
+			Default:     variable.Default,
 		}
 		if len(variable.VariableRefs) > 0 {
 			entry.VariableRefs = append([]string(nil), variable.VariableRefs...)

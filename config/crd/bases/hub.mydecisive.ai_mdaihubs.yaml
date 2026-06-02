@@ -609,12 +609,17 @@ spec:
                       enum:
                       - string
                       - int
+                      - float
                       - set
                       - map
                       - boolean
                       - metaHashSet
                       - metaPriorityList
                       type: string
+                    default:
+                      description: Default value applied when no value is stored.
+                        Manual variables only; shape validated against dataType.
+                      x-kubernetes-preserve-unknown-fields: true
                     key:
                       description: Key The key for which this variable's managed value
                         is assigned.
@@ -694,7 +699,7 @@ spec:
                     reason: FieldValueInvalid
                     rule: 'self.type == ''meta'' ? self.dataType in [''metaHashSet'',
                       ''metaPriorityList''] : self.dataType in [''string'', ''int'',
-                      ''boolean'', ''set'', ''map'']'
+                      ''float'', ''boolean'', ''set'', ''map'']'
                 type: array
             type: object
           status:
