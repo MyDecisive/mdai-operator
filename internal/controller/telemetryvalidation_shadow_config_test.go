@@ -283,12 +283,14 @@ func TestDeriveShadowConfigAddsDebugExporterWhenEnabled(t *testing.T) {
 			"datadog": map[string]any{"endpoint": "0.0.0.0:8126"},
 		}},
 		Processors: &otelv1beta1.AnyConfig{Object: map[string]any{}},
-		Exporters:  otelv1beta1.AnyConfig{Object: map[string]any{}},
+		Exporters: otelv1beta1.AnyConfig{Object: map[string]any{
+			"datadog": map[string]any{"api": map[string]any{"key": "x"}},
+		}},
 		Service: otelv1beta1.Service{Pipelines: map[string]*otelv1beta1.Pipeline{
 			"logs": {
 				Receivers:  []string{"datadog"},
 				Processors: []string{"batch"},
-				Exporters:  []string{"unused"},
+				Exporters:  []string{"datadog"},
 			},
 		}},
 	}
@@ -304,11 +306,45 @@ func TestDeriveShadowConfigAddsDebugExporterWhenEnabled(t *testing.T) {
 
 	pipeline := shadow.Service.Pipelines["logs"]
 	require.NotNil(t, pipeline)
-	assert.Equal(t, []string{"debug"}, pipeline.Exporters)
+	assert.Equal(t, []string{"datadog", "debug"}, pipeline.Exporters)
 
 	debugCfg, ok := shadow.Exporters.Object["debug"].(map[string]any)
 	require.True(t, ok)
 	assert.Equal(t, "detailed", debugCfg["verbosity"])
+}
+
+func TestDeriveShadowConfigDoesNotAddDebugToUnmatchedPipeline(t *testing.T) {
+	t.Parallel()
+
+	cfg := otelv1beta1.Config{
+		Receivers: otelv1beta1.AnyConfig{Object: map[string]any{
+			"count/spans_by_facet": map[string]any{},
+		}},
+		Processors: &otelv1beta1.AnyConfig{Object: map[string]any{
+			"deltatocumulative": map[string]any{},
+		}},
+		Exporters: otelv1beta1.AnyConfig{Object: map[string]any{
+			"prometheus": map[string]any{"endpoint": "0.0.0.0:8899"},
+		}},
+		Service: otelv1beta1.Service{Pipelines: map[string]*otelv1beta1.Pipeline{
+			"metrics": {
+				Receivers:  []string{"count/spans_by_facet"},
+				Processors: []string{"deltatocumulative"},
+				Exporters:  []string{"prometheus"},
+			},
+		}},
+	}
+
+	shadow := deriveShadowConfig(shadowConfigParams{
+		Config:                     cfg,
+		Signals:                    []hubv1.TelemetrySignal{hubv1.TelemetrySignalMetrics},
+		Namespace:                  "mdai",
+		ValidationName:             "sample",
+		CollectorName:              "gateway",
+		ShadowDebugExporterEnabled: true,
+	})
+
+	assert.Nil(t, shadow.Service.Pipelines["metrics"], "debug not added to pipeline with no matching exporters")
 }
 
 func TestDeriveShadowConfigRewritesLoadBalancingExportersWithoutDatadogExporter(t *testing.T) {
