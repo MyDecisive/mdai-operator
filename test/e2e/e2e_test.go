@@ -960,7 +960,7 @@ var _ = Describe("Manager", Ordered, func() {
 			By("validating that the config map has the updated variable value")
 			verifyConfigMap := func(g Gomega) {
 				data := getDataFromMap(g, "mdaihub-sample-variables", otelNamespace)
-				g.Expect(data).To(HaveLen(14))
+				g.Expect(data).To(HaveLen(15))
 				g.Expect(data["ATTRIBUTES"]).To(Equal("send_batch_size: 100\ntimeout: 15s\n"))
 				g.Expect(data["SERVICE_ALERTED"]).To(Equal("true"))
 				g.Expect(data["SERVICE_HASH_SET"]).To(Equal("INFO|WARNING"))
@@ -969,6 +969,7 @@ var _ = Describe("Manager", Ordered, func() {
 				g.Expect(data["DEFAULT"]).To(Equal("default"))
 				g.Expect(data["FILTER"]).To(Equal("- severity_number < SEVERITY_NUMBER_WARN\n- " +
 					"IsMatch(resource.attributes[\"service.name\"], \"${env:SERVICE_LIST}\")"))
+				g.Expect(data["MANUAL_FILTER"]).To(Equal(""))
 				g.Expect(data["SERVICE_LIST_CSV"]).To(Equal("noisy-service"))
 				g.Expect(data["SERVICE_LIST_REGEX"]).To(Equal("noisy-service"))
 				g.Expect(data["SERVICE_PRIORITY"]).To(Equal("default"))
