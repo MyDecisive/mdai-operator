@@ -346,6 +346,42 @@ var _ = Describe("MdaiHub Webhook", func() {
 			Expect(warnings).To(BeEmpty())
 		})
 
+		It("Should admit when a manual set variable declares a valid array default", func() {
+			obj := createSampleMdaiHub()
+			obj.Spec.Variables[0].Type = mdaiv1.VariableTypeManual
+			obj.Spec.Variables[0].Default = &apiextensionsv1.JSON{Raw: []byte(`["a","b"]`)}
+			warnings, err := validator.ValidateCreate(ctx, obj)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(warnings).To(BeEmpty())
+		})
+
+		It("Should fail if a manual set default is not an array of strings", func() {
+			obj := createSampleMdaiHub()
+			obj.Spec.Variables[0].Type = mdaiv1.VariableTypeManual
+			obj.Spec.Variables[0].Default = &apiextensionsv1.JSON{Raw: []byte(`{"a":"b"}`)}
+			warnings, err := validator.ValidateCreate(ctx, obj)
+			Expect(err).To(MatchError(ContainSubstring(`spec.variables[0].default`)))
+			Expect(warnings).To(BeEmpty())
+		})
+
+		It("Should admit when a manual map variable declares a valid object default", func() {
+			obj := createSampleMdaiHub()
+			obj.Spec.Variables[5].Type = mdaiv1.VariableTypeManual
+			obj.Spec.Variables[5].Default = &apiextensionsv1.JSON{Raw: []byte(`{"k":"v"}`)}
+			warnings, err := validator.ValidateCreate(ctx, obj)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(warnings).To(BeEmpty())
+		})
+
+		It("Should fail if a manual map default has non-string values", func() {
+			obj := createSampleMdaiHub()
+			obj.Spec.Variables[5].Type = mdaiv1.VariableTypeManual
+			obj.Spec.Variables[5].Default = &apiextensionsv1.JSON{Raw: []byte(`{"k":1}`)}
+			warnings, err := validator.ValidateCreate(ctx, obj)
+			Expect(err).To(MatchError(ContainSubstring(`spec.variables[5].default`)))
+			Expect(warnings).To(BeEmpty())
+		})
+
 		It("Should fail if exported variable name is duplicated", func() {
 			obj := createSampleMdaiHub()
 			(*(obj.Spec.Variables)[7].SerializeAs)[0].Name = "SERVICE_LIST_CSV"
