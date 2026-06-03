@@ -12,7 +12,7 @@ spec:
     - traces
   shadowDebugExporterEnabled: false
   validator:
-    image: ghcr.io/mydecisive/mdai-fidelity-validator:0.1.0
+    image: ghcr.io/mydecisive/mdai-fidelity-validator:0.1.2
     port: 18081
     rulesYAML: |
       rules: []
