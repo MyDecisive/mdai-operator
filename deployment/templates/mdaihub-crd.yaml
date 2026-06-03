@@ -614,8 +614,8 @@ spec:
                       - metaPriorityList
                       type: string
                     default:
-                      description: Default value applied when no value is stored.
-                        Manual variables only; shape validated against dataType.
+                      description: Default value applied when no value is stored. Manual
+                        variables only; shape validated against dataType.
                       x-kubernetes-preserve-unknown-fields: true
                     key:
                       description: Key The key for which this variable's managed value
