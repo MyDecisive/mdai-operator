@@ -961,7 +961,7 @@ var _ = Describe("Manager", Ordered, func() {
 			verifyConfigMap := func(g Gomega) {
 				data := getDataFromMap(g, "mdaihub-sample-variables", otelNamespace)
 				g.Expect(data).To(HaveLen(15))
-				g.Expect(data["ATTRIBUTES"]).To(Equal("send_batch_size: 100\ntimeout: 15s\n"))
+				g.Expect(data["ATTRIBUTES"]).To(Equal("send_batch_size: \"100\"\ntimeout: 15s\n"))
 				g.Expect(data["SERVICE_ALERTED"]).To(Equal("true"))
 				g.Expect(data["SERVICE_HASH_SET"]).To(Equal("INFO|WARNING"))
 				g.Expect(data["SERVICE_LIST_2_CSV"]).To(Equal(""))

@@ -10,7 +10,6 @@ import (
 	"os"
 	"regexp"
 	"slices"
-	"strconv"
 	"strings"
 	"time"
 
@@ -366,24 +365,8 @@ func defaultRawIfDeclared(variable mdaiv1.Variable) json.RawMessage {
 	return json.RawMessage(variable.Default.Raw)
 }
 
-// renderMapForCollectorEnv mirrors variables.GetMapAsString's opportunistic
-// int/float reparse so YAML values are typed when they look numeric. Preserves
-// the env-var format collectors observe today regardless of whether the value
-// came from Valkey or a declared default.
 func renderMapForCollectorEnv(hash map[string]string) (string, error) {
-	data := make(map[string]any, len(hash))
-	for k, v := range hash {
-		if i, err := strconv.Atoi(v); err == nil {
-			data[k] = i
-			continue
-		}
-		if f, err := strconv.ParseFloat(v, 64); err == nil {
-			data[k] = f
-			continue
-		}
-		data[k] = v
-	}
-	out, err := yaml.Marshal(data)
+	out, err := yaml.Marshal(hash)
 	if err != nil {
 		return "", fmt.Errorf("render map: %w", err)
 	}

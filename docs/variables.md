@@ -68,17 +68,24 @@ The dataType field specifies the kind of data a variable holds.
 ### Scalar Types
    These types hold a single value.   
    `string`: A simple string of text. Can be used to store complex data like YAML or JSON as a string.   
-   `int`: An integer value. Stored as a string in Valkey.   
-   `float`: A 64-bit floating-point value. Stored as a string in Valkey. Writers are responsible for using a canonical serialization (e.g., the shortest round-trippable form) so reconciliation diffs do not fire on equivalent values that happen to be formatted differently.   
+   `int`: An integer value. Stored as a string in Valkey. **YAML/kubectl precision ceiling**: integer literals in CR YAML are decoded through `float64` by the standard kubectl client, so any `default:` value outside `±(2^53 − 1)` (`±9_007_199_254_740_991`) is silently rounded before the apiserver sees it. For defaults in that range, submit the value through the gateway POST endpoint instead, which accepts raw JSON and preserves full `int64` precision end-to-end.   
+   `float`: A 64-bit floating-point value. Stored as a string in Valkey. Writers are responsible for using a canonical serialization (e.g., the shortest round-trippable form) so reconciliation diffs do not fire on equivalent values that happen to be formatted differently. **YAML overflow note**: float literals that overflow `float64` (e.g., `1e400`) are coerced to JSON strings by the kubectl client before the apiserver sees them, so the webhook rejects them as `"float expected: cannot unmarshal string into float64"` rather than as NaN/Inf. The underlying NaN/Inf rejection still applies when defaults are submitted through the gateway POST endpoint as raw JSON.   
    `boolean`: A boolean value. Stored as "0" (false) or "1" (true) in Valkey.   
 ### Collection Types
    These types hold multiple values.   
    `set`: An unordered collection of unique strings, leveraging Valkey's Set data structure. Useful for managing lists of items where uniqueness is important.   
    `map`: A collection of key-value pairs, leveraging Valkey's Hash data structure. Both keys and values are strings.
+
+   **Rendering contract**: map values are emitted to the env-var ConfigMap as YAML strings — no opportunistic int/float reparse. A value like `"01234"` survives intact (no leading-zero loss), and a value like `"100"` is rendered as `"100"` (quoted). Modern OTel collectors decode their config with strict typing (`confmap.WeaklyTypedInput: false`), so a map value substituted into a typed numeric processor field is rejected. For mixed-type processor config, declare a `string` variable carrying a JSON blob instead: the collector's YAML parser resolves types from the literal JSON syntax (e.g. `default: '{"send_batch_size":100,"timeout":"15s"}'`), giving the user explicit per-value type control without renderer guessing.
 ### Meta Data Types
    These are special data types for meta variables.   
    `metaHashSet`: A lookup table. It takes an input/key variable and a lookup variable (which must be a map) and returns a string value from the map corresponding to the value of the key variable. Typical uses: feature flags, allowlists/denylists (when you only need membership), routing toggles, etc.   
    `metaPriorityList`: Takes a list of variableRefs and evaluates to the value of the first variable in the list that is not empty or null. Use cases: rule chains, routing preferences, fallbacks.
+## Defaults (`default`)
+   Manual variables may declare a `default:` value of the same shape as their `dataType`. The default is a read-time projection: it is never written to Valkey, materialized only when no stored value exists, and superseded by any subsequent write.
+
+   **YAML null handling**: writing `default: null`, or including `null` as an entry inside a `default:` map or list, is **not** a way to express an explicit null value. The Kubernetes API server prunes null leaves from `apiextensions.JSON` fields before admission webhooks run, so the value never reaches the operator and is silently dropped. To express "no default", omit the field entirely. To express the literal four-character string `"null"`, quote it: `default: "null"`.
+
 ## Serialization (serializeAs)
    The serializeAs field defines how a variable's value is exposed to other components, typically as environment variables in an OTEL Collector. It is an array, allowing a single variable to be exposed in multiple ways or with different transformations.  
    `name`: The name of the environment variable.  
