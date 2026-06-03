@@ -435,13 +435,14 @@ func TestHandleComputedVariable_AppliesDefault(t *testing.T) {
 			expectedVal: "svc-a,svc-b",
 		},
 		{
-			name: "map default applied on empty hash with numeric reparse",
+			// Leading zero survives only if values are not reparsed as numbers ("007", not 7).
+			name: "map default rendered string-to-string without numeric reparse",
 			variable: mdaiv1.Variable{
 				Key:         "batch",
 				Type:        mdaiv1.VariableTypeManual,
 				DataType:    mdaiv1.VariableDataTypeMap,
 				StorageType: mdaiv1.VariableSourceTypeBuiltInValkey,
-				Default:     &apiextensionsv1.JSON{Raw: []byte(`{"size":"100","timeout":"15s"}`)},
+				Default:     &apiextensionsv1.JSON{Raw: []byte(`{"size":"100","id":"007","timeout":"15s"}`)},
 				SerializeAs: &[]mdaiv1.Serializer{{Name: "BATCH"}},
 			},
 			valkeyStub: func() {
@@ -449,7 +450,7 @@ func TestHandleComputedVariable_AppliesDefault(t *testing.T) {
 					Return(mock.Result(mock.ValkeyMap(map[string]valkey.ValkeyMessage{})))
 			},
 			expectedKey: "BATCH",
-			expectedVal: "size: 100\ntimeout: 15s\n",
+			expectedVal: "id: \"007\"\nsize: \"100\"\ntimeout: 15s\n",
 		},
 		{
 			name: "scalar no default + absent key emits no env var",
@@ -1305,6 +1306,30 @@ func TestExtractCollectorEnvRefs(t *testing.T) {
 			},
 			wantRefs:     []string{"OTEL_RECEIVER_ENDPOINT", "DD_API_KEY"},
 			wantWildcard: false,
+		},
+		{
+			name:         "bare ref without scheme",
+			collector:    collectorWithReceiverValue("${OTEL_ENDPOINT}"),
+			wantRefs:     []string{"OTEL_ENDPOINT"},
+			wantWildcard: false,
+		},
+		{
+			name:         "bare ref without scheme with default",
+			collector:    collectorWithReceiverValue("${OTEL_ENDPOINT:-0.0.0.0:4317}"),
+			wantRefs:     []string{"OTEL_ENDPOINT"},
+			wantWildcard: false,
+		},
+		{
+			name:         "non-env scheme is not a variable ref",
+			collector:    collectorWithReceiverValue("${file:/etc/otel/endpoint}"),
+			wantRefs:     nil,
+			wantWildcard: false,
+		},
+		{
+			name:         "scheme-less indirection falls back to wildcard",
+			collector:    collectorWithReceiverValue("${${PREFIX}}"),
+			wantRefs:     nil,
+			wantWildcard: true,
 		},
 	}
 	for _, tt := range tests {

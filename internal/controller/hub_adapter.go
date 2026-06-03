@@ -514,25 +514,31 @@ func (c HubAdapter) syncComputedConfigMapsAndRestart(ctx context.Context, envMap
 }
 
 var (
-	envRefStrict = regexp.MustCompile(`\$\{env:([A-Za-z_][A-Za-z0-9_]*)(?::-[^}]*)?\}`)
-	envRefAny    = regexp.MustCompile(`\$\{env:`)
+	// envRef matches both `${env:NAME}` and the scheme-less `${NAME}`: the collector's default
+	// scheme is "env", so a brace ref with no scheme also reads from the environment.
+	envRef = regexp.MustCompile(`\$\{(?:env:)?([A-Za-z_][A-Za-z0-9_]*)(?::-[^}]*)?\}`)
+	// envRefNested flags indirection (`${env:${PREFIX}_FOO}`) that envRef can't resolve → wildcard.
+	envRefNested = regexp.MustCompile(`\$\{[^}]*\$\{`)
 )
 
 // extractCollectorEnvRefs returns the env-var names referenced by the collector's OTEL config.
 // The wildcard return is set when the config contains references the parser cannot resolve
-// (yaml error, indirection like `${env:${PREFIX}_FOO}`); callers must then treat the collector
-// as consuming every variable.
+// (yaml error, or indirection like `${env:${PREFIX}_FOO}`); callers must then treat the
+// collector as consuming every variable.
 func extractCollectorEnvRefs(collector v1beta1.OpenTelemetryCollector) (map[string]struct{}, bool) {
 	cfg, err := collector.Spec.Config.Yaml()
 	if err != nil {
 		return nil, true
 	}
-	strictMatches := envRefStrict.FindAllStringSubmatch(cfg, -1)
-	refs := make(map[string]struct{}, len(strictMatches))
-	for _, m := range strictMatches {
+	if envRefNested.MatchString(cfg) {
+		return nil, true
+	}
+	matches := envRef.FindAllStringSubmatch(cfg, -1)
+	refs := make(map[string]struct{}, len(matches))
+	for _, m := range matches {
 		refs[m[1]] = struct{}{}
 	}
-	return refs, len(envRefAny.FindAllStringIndex(cfg, -1)) > len(strictMatches)
+	return refs, false
 }
 
 func diffEnvMapKeys(old, current map[string]string) map[string]struct{} {
