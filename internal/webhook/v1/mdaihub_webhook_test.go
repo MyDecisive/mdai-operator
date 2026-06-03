@@ -301,13 +301,12 @@ var _ = Describe("MdaiHub Webhook", func() {
 			Expect(warnings).To(BeEmpty())
 		})
 
-		It("Should fail if default is null", func() {
+		It("Should admit when default has nil Raw (collapses to no-default; apiserver prunes null leaves before admission)", func() {
 			obj := createSampleMdaiHub()
 			obj.Spec.Variables[2].Type = mdaiv1.VariableTypeManual
 			obj.Spec.Variables[2].Default = &apiextensionsv1.JSON{Raw: nil}
 			warnings, err := validator.ValidateCreate(ctx, obj)
-			Expect(err).To(MatchError(ContainSubstring(`spec.variables[2].default: Invalid value: "null"`)))
-			Expect(err).To(MatchError(ContainSubstring(`default must not be null`)))
+			Expect(err).NotTo(HaveOccurred())
 			Expect(warnings).To(BeEmpty())
 		})
 

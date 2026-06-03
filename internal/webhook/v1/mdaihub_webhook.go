@@ -459,13 +459,10 @@ func isValidURL(s string) bool {
 }
 
 func validateVariableDefault(varIndex *field.Path, variable mdaiv1.Variable) field.ErrorList {
-	if variable.Default == nil {
+	if variable.Default == nil || variable.Default.Raw == nil {
 		return nil
 	}
 	defaultPath := varIndex.Child("default")
-	if variable.Default.Raw == nil {
-		return field.ErrorList{field.Invalid(defaultPath, "null", "default must not be null; omit the field to express no default")}
-	}
 	if variable.Type != mdaiv1.VariableTypeManual {
 		return field.ErrorList{field.Forbidden(defaultPath, "defaults are only allowed for manual variables")}
 	}
