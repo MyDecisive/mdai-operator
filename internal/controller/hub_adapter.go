@@ -327,7 +327,9 @@ func (c HubAdapter) deletePrometheusRule(ctx context.Context) error {
 	return nil
 }
 
-func (c HubAdapter) handleComputedVariable(ctx context.Context, dataAdapter *vars.ValkeyAdapter, variable mdaiv1.Variable, envMap map[string]string) error {
+// handleStoredVariable resolves a manual or computed variable's value (or its declared
+// default) from Valkey and writes the serialized result into envMap.
+func (c HubAdapter) handleStoredVariable(ctx context.Context, dataAdapter *vars.ValkeyAdapter, variable mdaiv1.Variable, envMap map[string]string) error {
 	res, err := vars.Resolve(ctx, dataAdapter, c.mdaiCR.Name, variable.Key, variable.DataType, defaultRawIfDeclared(variable))
 	if err != nil {
 		return err
@@ -362,7 +364,7 @@ func defaultRawIfDeclared(variable mdaiv1.Variable) json.RawMessage {
 	if variable.Default == nil {
 		return nil
 	}
-	return json.RawMessage(variable.Default.Raw)
+	return variable.Default.Raw
 }
 
 func renderMapForCollectorEnv(hash map[string]string) (string, error) {
@@ -417,9 +419,11 @@ func (c HubAdapter) syncValkeyVariables(ctx context.Context, envMap, manualEnvMa
 		switch variable.Type {
 		case mdaiv1.VariableTypeManual:
 			manualEnvMap[key] = string(variable.DataType)
+			// Manual and computed variables are both stored directly in Valkey and resolved
+			// identically; only the manualEnvMap bookkeeping above is manual-specific.
 			fallthrough
 		case mdaiv1.VariableTypeComputed:
-			if err := c.handleComputedVariable(ctx, dataAdapter, variable, envMap); err != nil {
+			if err := c.handleStoredVariable(ctx, dataAdapter, variable, envMap); err != nil {
 				return err
 			}
 		case mdaiv1.VariableTypeMeta:
@@ -517,7 +521,8 @@ var (
 	// envRef matches both `${env:NAME}` and the scheme-less `${NAME}`: the collector's default
 	// scheme is "env", so a brace ref with no scheme also reads from the environment.
 	envRef = regexp.MustCompile(`\$\{(?:env:)?([A-Za-z_][A-Za-z0-9_]*)(?::-[^}]*)?\}`)
-	// envRefNested flags indirection (`${env:${PREFIX}_FOO}`) that envRef can't resolve → wildcard.
+	// envRefNested flags any nested `${...${...}}`: envRef can't resolve nesting without
+	// undercounting consumed vars, so any nesting forces a wildcard restart.
 	envRefNested = regexp.MustCompile(`\$\{[^}]*\$\{`)
 )
 

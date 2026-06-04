@@ -378,7 +378,7 @@ func TestBuildVariableSchemaEnvMap(t *testing.T) {
 	assert.Equal(t, []string{"first", "second"}, metaPayload.VariableRefs)
 }
 
-func TestHandleComputedVariable_AppliesDefault(t *testing.T) {
+func TestHandleStoredVariable_AppliesDefault(t *testing.T) {
 	ctx := t.Context()
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
@@ -474,7 +474,7 @@ func TestHandleComputedVariable_AppliesDefault(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			tc.valkeyStub()
 			envMap := map[string]string{}
-			require.NoError(t, adapter.handleComputedVariable(ctx, dataAdapter, tc.variable, envMap))
+			require.NoError(t, adapter.handleStoredVariable(ctx, dataAdapter, tc.variable, envMap))
 			if tc.expectNoKey {
 				assert.NotContains(t, envMap, tc.expectedKey)
 				return
@@ -484,7 +484,7 @@ func TestHandleComputedVariable_AppliesDefault(t *testing.T) {
 	}
 }
 
-func TestHandleComputedVariable_StoredValueWinsOverDefault(t *testing.T) {
+func TestHandleStoredVariable_StoredValueWinsOverDefault(t *testing.T) {
 	ctx := t.Context()
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
@@ -506,7 +506,7 @@ func TestHandleComputedVariable_StoredValueWinsOverDefault(t *testing.T) {
 		Return(mock.Result(mock.ValkeyString("50")))
 
 	envMap := map[string]string{}
-	require.NoError(t, adapter.handleComputedVariable(ctx, dataAdapter, variable, envMap))
+	require.NoError(t, adapter.handleStoredVariable(ctx, dataAdapter, variable, envMap))
 	assert.Equal(t, "50", envMap["SAMPLING_RATE"])
 }
 
@@ -1328,6 +1328,20 @@ func TestExtractCollectorEnvRefs(t *testing.T) {
 		{
 			name:         "scheme-less indirection falls back to wildcard",
 			collector:    collectorWithReceiverValue("${${PREFIX}}"),
+			wantRefs:     nil,
+			wantWildcard: true,
+		},
+		{
+			// envRef captures OTEL_ENDPOINT but would drop the nested FALLBACK ref.
+			name:         "nested ref in default value falls back to wildcard",
+			collector:    collectorWithReceiverValue("${env:OTEL_ENDPOINT:-${env:FALLBACK_ENDPOINT}}"),
+			wantRefs:     nil,
+			wantWildcard: true,
+		},
+		{
+			// Complete env ref inside a non-env provider: resolvable alone, but any nesting wildcards.
+			name:         "nested env ref inside non-env provider falls back to wildcard",
+			collector:    collectorWithReceiverValue("${file:${env:CONFIG_DIR}/endpoint}"),
 			wantRefs:     nil,
 			wantWildcard: true,
 		},

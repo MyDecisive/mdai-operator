@@ -554,7 +554,7 @@ spec:
                           setVariable:
                             properties:
                               scalar:
-                                description: Target set variable name
+                                description: Target scalar variable name
                                 maxLength: 63
                                 minLength: 1
                                 pattern: ^[a-zA-Z_][a-zA-Z0-9_]*$
@@ -566,6 +566,17 @@ spec:
                             required:
                             - scalar
                             - value
+                            type: object
+                          unsetVariable:
+                            properties:
+                              scalar:
+                                description: Target scalar variable name
+                                maxLength: 63
+                                minLength: 1
+                                pattern: ^[a-zA-Z_][a-zA-Z0-9_]*$
+                                type: string
+                            required:
+                            - scalar
                             type: object
                         type: object
                       type: array

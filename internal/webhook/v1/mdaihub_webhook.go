@@ -298,6 +298,13 @@ func validateAction(actionPath *field.Path, action mdaiv1.Action, knownVarKeys m
 			},
 		},
 		{
+			key:     "unsetVariable",
+			present: action.UnsetVariable != nil,
+			validate: func() field.ErrorList {
+				return validateVariableAction(actionPath.Child("unsetVariable"), action.UnsetVariable.Scalar, knownVarKeys, "scalar")
+			},
+		},
+		{
 			key:     "addToMap",
 			present: action.AddToMap != nil,
 			validate: func() field.ErrorList {

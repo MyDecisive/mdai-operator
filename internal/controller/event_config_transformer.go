@@ -69,6 +69,9 @@ func transformThenToCommands(actions []mdaiv1.Action) ([]events.Command, error) 
 		if err := appendCmd(action.SetVariable != nil, action.SetVariable, events.CmdVarScalarUpdate); err != nil {
 			return nil, err
 		}
+		if err := appendCmd(action.UnsetVariable != nil, action.UnsetVariable, events.CmdVarScalarRemove); err != nil {
+			return nil, err
+		}
 		if err := appendCmd(action.AddToMap != nil, action.AddToMap, events.CmdVarMapAdd); err != nil {
 			return nil, err
 		}

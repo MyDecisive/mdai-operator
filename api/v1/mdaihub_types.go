@@ -111,7 +111,8 @@ type Action struct {
 	AddToSet      *SetAction `json:"addToSet,omitempty"`
 	RemoveFromSet *SetAction `json:"removeFromSet,omitempty"`
 
-	SetVariable *ScalarAction `json:"setVariable,omitempty"`
+	SetVariable   *ScalarAction       `json:"setVariable,omitempty"`
+	UnsetVariable *ScalarRemoveAction `json:"unsetVariable,omitempty"`
 
 	AddToMap      *MapAction `json:"addToMap,omitempty"`
 	RemoveFromMap *MapAction `json:"removeFromMap,omitempty"`
@@ -135,7 +136,7 @@ type SetAction struct {
 }
 
 type ScalarAction struct {
-	// Target set variable name
+	// Target scalar variable name
 	// +kubebuilder:validation:Pattern:="^[a-zA-Z_][a-zA-Z0-9_]*$"
 	// +kubebuilder:validation:MinLength=1
 	// +kubebuilder:validation:MaxLength=63
@@ -144,6 +145,15 @@ type ScalarAction struct {
 	// Value to add (templated string allowed)
 	// +kubebuilder:validation:MinLength=1
 	Value string `json:"value"`
+}
+
+type ScalarRemoveAction struct {
+	// Target scalar variable name
+	// +kubebuilder:validation:Pattern:="^[a-zA-Z_][a-zA-Z0-9_]*$"
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=63
+	// +kubebuilder:validation:Required
+	Scalar string `json:"scalar"`
 }
 
 type MapAction struct {
