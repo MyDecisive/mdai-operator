@@ -366,6 +366,8 @@ helm-update: manifests kustomize helmify helm-docs helm-values-schema-json-plugi
 	@$(YQ) -i '.version = "$(VERSION)"' $(CHART_PATH)/Chart.yaml
 	$(call vecho,"🧩 Updating Helm chart appVersion to $(VERSION)...")
 	@$(YQ) -i '.appVersion = "$(VERSION)"' $(CHART_PATH)/Chart.yaml
+	$(call vecho,"🧩 Removing hardcoded tag version...")
+	@$(YQ) -i 'del(.controllerManager.manager.image.tag)' $(CHART_PATH)/values.yaml
 	$(call vecho,"📝 Updating Helm chart docs...")
 	@$(HELM_DOCS) --skip-version-footer $(CHART_PATH) -f values.yaml -l warning
 	$(call vecho,"📐 Updating Helm chart JSON schema...")
