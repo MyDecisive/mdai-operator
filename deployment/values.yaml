@@ -19,7 +19,6 @@ controllerManager:
       valkeyAuditStreamExpiryMs: "2592000000"
     image:
       repository: ghcr.io/mydecisive/mdai-operator
-      tag: 0.2.20
     resources:
       limits:
         cpu: 500m
@@ -67,7 +66,6 @@ xdsService:
 admissionWebhooks:
   create: true
   secretName: ""
-
   certManager:
     enabled: true
     issuerRef: {}
@@ -75,12 +73,10 @@ admissionWebhooks:
     issuerAnnotations: {}
     duration: ""
     renewBefore: ""
-
   autoGenerateCert:
     enabled: false
     recreate: true
     certPeriodDays: 365
-
   certFile: ""
   keyFile: ""
   caFile: ""
