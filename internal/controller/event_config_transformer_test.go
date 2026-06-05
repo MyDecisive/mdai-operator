@@ -160,6 +160,7 @@ func sampleWebhook() *mdaiv1.CallWebhookAction         { return &mdaiv1.CallWebh
 func sampleMap() *mdaiv1.MapAction                     { return &mdaiv1.MapAction{} }
 func sampleDeployReplay() *mdaiv1.DeployReplayAction   { return &mdaiv1.DeployReplayAction{} }
 func sampleCleanUpReplay() *mdaiv1.CleanUpReplayAction { return &mdaiv1.CleanUpReplayAction{} }
+func sampleUnset() *mdaiv1.ScalarRemoveAction          { return &mdaiv1.ScalarRemoveAction{} }
 
 func TestTransformThenToCommands_SinglePerAction_Succeeds(t *testing.T) {
 	actions := []mdaiv1.Action{
@@ -171,6 +172,7 @@ func TestTransformThenToCommands_SinglePerAction_Succeeds(t *testing.T) {
 		{CallWebhook: sampleWebhook()},
 		{DeployReplay: sampleDeployReplay()},
 		{CleanUpReplay: sampleCleanUpReplay()},
+		{UnsetVariable: sampleUnset()},
 	}
 
 	cmds, err := transformThenToCommands(actions)
@@ -185,6 +187,7 @@ func TestTransformThenToCommands_SinglePerAction_Succeeds(t *testing.T) {
 	assertCmd(t, cmds[5], rule.CmdWebhookCall, actions[5].CallWebhook)
 	assertCmd(t, cmds[6], rule.CmdDeployReplay, actions[6].DeployReplay)
 	assertCmd(t, cmds[7], rule.CmdCleanUpReplay, actions[7].CleanUpReplay)
+	assertCmd(t, cmds[8], rule.CmdVarScalarRemove, actions[8].UnsetVariable)
 }
 
 func TestTransformThenToCommands_EmptySlice_OK(t *testing.T) {

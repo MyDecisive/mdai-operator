@@ -25,11 +25,15 @@ spec:
               join:
                 delimiter: "|"
     - key: filter
+      type: manual
       dataType: string
+      default: ""
       serializeAs:
         - name: "FILTER"
     - key: riskLevel
+      type: manual
       dataType: string
+      default: "low"
       serializeAs:
         - name: "RISK_LEVEL"
     - key: severity_number

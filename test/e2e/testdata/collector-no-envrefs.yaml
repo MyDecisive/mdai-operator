@@ -1,0 +1,53 @@
+apiVersion: opentelemetry.io/v1beta1
+kind: OpenTelemetryCollector
+metadata:
+  labels:
+    mydecisive.ai/hub-name: mdaihub-sample
+  name: gateway-no-envrefs
+  namespace: otel
+spec:
+  envFrom:
+    - configMapRef:
+        name: mdaihub-sample-variables
+  config:
+    exporters:
+      debug:
+        sampling_initial: 2
+        sampling_thereafter: 100
+        verbosity: detailed
+    processors:
+      resource:
+        attributes:
+          - action: insert
+            from_attribute: k8s.pod.uid
+            key: service.instance.id
+    receivers:
+      otlp:
+        protocols:
+          grpc:
+            endpoint: 0.0.0.0:4317
+          http:
+            endpoint: 0.0.0.0:4318
+    service:
+      pipelines:
+        logs:
+          exporters:
+            - debug
+          processors:
+            - resource
+          receivers:
+            - otlp
+        metrics:
+          exporters:
+            - debug
+          processors:
+            - resource
+          receivers:
+            - otlp
+        traces:
+          exporters:
+            - debug
+          processors:
+            - resource
+          receivers:
+            - otlp

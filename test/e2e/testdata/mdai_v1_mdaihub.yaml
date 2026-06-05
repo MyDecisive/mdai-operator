@@ -82,6 +82,7 @@ spec:
     - key: manual_filter
       type: manual
       dataType: string
+      default: ""
       serializeAs:
         - name: "MANUAL_FILTER"
     - key: service_list_manual

@@ -2,8 +2,10 @@ package v1
 
 import (
 	corev1 "k8s.io/api/core/v1"
+	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
 
+	"github.com/mydecisive/mdai-data-core/variables"
 	prometheusv1 "github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
@@ -34,9 +36,9 @@ type JoinTransformer struct {
 }
 
 // Variable defines mdai variable
-// +kubebuilder:validation:XValidation:rule="self.type == 'meta' ? self.dataType in ['metaHashSet', 'metaPriorityList'] : self.dataType in ['string', 'int', 'boolean', 'set', 'map']",messageExpression="\"variable '\" + self.key + \"': dataType is not allowed for type specified\"",reason="FieldValueInvalid"
+// +kubebuilder:validation:XValidation:rule="self.type == 'meta' ? self.dataType in ['metaHashSet', 'metaPriorityList'] : self.dataType in ['string', 'int', 'float', 'boolean', 'set', 'map']",messageExpression="\"variable '\" + self.key + \"': dataType is not allowed for type specified\"",reason="FieldValueInvalid"
 type Variable struct {
-	// Key The key for which this variable's managed value is assigned. Will also be used as the environment variable name for variables of type "string"
+	// Key The key for which this variable's managed value is assigned.
 	// +kubebuilder:validation:Pattern:="^[a-zA-Z_][a-zA-Z0-9_]*$"
 	// +kubebuilder:validation:MinLength=1
 	// +kubebuilder:validation:MaxLength=63
@@ -49,7 +51,7 @@ type Variable struct {
 	Type VariableType `json:"type" yaml:"type"`
 	// DataType Data type for the managed variable value
 	// +kubebuilder:validation:Required
-	// +kubebuilder:validation:Enum:=string;int;set;map;boolean;metaHashSet;metaPriorityList
+	// +kubebuilder:validation:Enum:=string;int;float;set;map;boolean;metaHashSet;metaPriorityList
 	DataType VariableDataType `json:"dataType" yaml:"dataType"`
 	// StorageType defaults to "mdai-valkey" if not provided
 	// +kubebuilder:default="mdai-valkey"
@@ -60,6 +62,10 @@ type Variable struct {
 	VariableRefs []string `json:"variableRefs,omitempty" yaml:"variableRefs,omitempty"`
 	// +kubebuilder:validation:Optional
 	SerializeAs *[]Serializer `json:"serializeAs,omitempty" yaml:"serializeAs,omitempty"`
+	// Default value applied when no value is stored. Manual variables only; shape validated against dataType.
+	// +kubebuilder:validation:Optional
+	// +kubebuilder:pruning:PreserveUnknownFields
+	Default *apiextensionsv1.JSON `json:"default,omitempty" yaml:"default,omitempty"`
 }
 
 type PrometheusAlert struct {
@@ -105,7 +111,8 @@ type Action struct {
 	AddToSet      *SetAction `json:"addToSet,omitempty"`
 	RemoveFromSet *SetAction `json:"removeFromSet,omitempty"`
 
-	SetVariable *ScalarAction `json:"setVariable,omitempty"`
+	SetVariable   *ScalarAction       `json:"setVariable,omitempty"`
+	UnsetVariable *ScalarRemoveAction `json:"unsetVariable,omitempty"`
 
 	AddToMap      *MapAction `json:"addToMap,omitempty"`
 	RemoveFromMap *MapAction `json:"removeFromMap,omitempty"`
@@ -129,7 +136,7 @@ type SetAction struct {
 }
 
 type ScalarAction struct {
-	// Target set variable name
+	// Target scalar variable name
 	// +kubebuilder:validation:Pattern:="^[a-zA-Z_][a-zA-Z0-9_]*$"
 	// +kubebuilder:validation:MinLength=1
 	// +kubebuilder:validation:MaxLength=63
@@ -138,6 +145,15 @@ type ScalarAction struct {
 	// Value to add (templated string allowed)
 	// +kubebuilder:validation:MinLength=1
 	Value string `json:"value"`
+}
+
+type ScalarRemoveAction struct {
+	// Target scalar variable name
+	// +kubebuilder:validation:Pattern:="^[a-zA-Z_][a-zA-Z0-9_]*$"
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=63
+	// +kubebuilder:validation:Required
+	Scalar string `json:"scalar"`
 }
 
 type MapAction struct {
@@ -303,7 +319,7 @@ type (
 	VariableSourceType      string
 	VariableStorageType     string
 	VariableType            string
-	VariableDataType        string
+	VariableDataType        = variables.DataType
 	VariableTransform       string
 	VariableUpdateOperation string
 	ObserverResourceType    string
@@ -320,20 +336,15 @@ const (
 	// VariableTypeMeta Variable type that is derived from manual and computed variables
 	VariableTypeMeta VariableType = "meta"
 
-	// computed variable types
-	VariableDataTypeInt     VariableDataType = "int"     // internally stored in string
-	VariableDataTypeFloat   VariableDataType = "float"   // internally stored in string, disabled for now
-	VariableDataTypeBoolean VariableDataType = "boolean" // 0 or 1 as string in valkey
-	// VariableDataTypeString the string variable, could be used to store yaml or any other string
-	VariableDataTypeString VariableDataType = "string"
-	VariableDataTypeSet    VariableDataType = "set" // valkey set
-	// VariableDataTypeMap implemented as hash map. Order is not guaranteed. Keys and values are strings.
-	VariableDataTypeMap VariableDataType = "map" // valkey hashes
-
-	// MetaVariableDataTypeHashSet LookupTable takes an input/key variable and a lookup variable. Returns a string.
-	MetaVariableDataTypeHashSet VariableDataType = "metaHashSet"
-	// MetaVariableDataTypePriorityList takes a list of variable refs, and will evaluate to the first one that is not empty. Returns an array of strings.
-	MetaVariableDataTypePriorityList VariableDataType = "metaPriorityList"
+	// Variable data types
+	VariableDataTypeInt              = variables.DataTypeInt
+	VariableDataTypeFloat            = variables.DataTypeFloat
+	VariableDataTypeBoolean          = variables.DataTypeBoolean
+	VariableDataTypeString           = variables.DataTypeString
+	VariableDataTypeSet              = variables.DataTypeSet
+	VariableDataTypeMap              = variables.DataTypeMap
+	MetaVariableDataTypeHashSet      = variables.DataTypeMetaHashSet
+	MetaVariableDataTypePriorityList = variables.DataTypeMetaPriorityList
 
 	TransformerTypeJoin TransformerType = "join"
 

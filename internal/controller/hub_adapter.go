@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"regexp"
 	"slices"
 	"strings"
 	"time"
@@ -24,6 +25,7 @@ import (
 	"github.com/valkey-io/valkey-go"
 
 	corev1 "k8s.io/api/core/v1"
+	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -33,6 +35,8 @@ import (
 	"k8s.io/client-go/tools/record"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+
+	"gopkg.in/yaml.v3"
 )
 
 const (
@@ -75,6 +79,7 @@ type variableSchemaConfigMapEntry struct {
 	StorageType  mdaiv1.VariableStorageType `json:"storageType"`
 	VariableRefs []string                   `json:"variableRefs,omitempty"`
 	SerializeAs  *[]mdaiv1.Serializer       `json:"serializeAs,omitempty"`
+	Default      *apiextensionsv1.JSON      `json:"default,omitempty"`
 }
 
 func NewHubAdapter(
@@ -322,37 +327,52 @@ func (c HubAdapter) deletePrometheusRule(ctx context.Context) error {
 	return nil
 }
 
-func (c HubAdapter) handleComputedVariable(ctx context.Context, dataAdapter *vars.ValkeyAdapter, variable mdaiv1.Variable, envMap map[string]string) error {
+// handleStoredVariable resolves a manual or computed variable's value (or its declared
+// default) from Valkey and writes the serialized result into envMap.
+func (c HubAdapter) handleStoredVariable(ctx context.Context, dataAdapter *vars.ValkeyAdapter, variable mdaiv1.Variable, envMap map[string]string) error {
+	res, err := vars.Resolve(ctx, dataAdapter, c.mdaiCR.Name, variable.Key, variable.DataType, defaultRawIfDeclared(variable))
+	if err != nil {
+		return err
+	}
+
 	//nolint: exhaustive
 	switch variable.DataType {
 	case mdaiv1.VariableDataTypeSet:
-		valueAsSlice, err := dataAdapter.GetSetAsStringSlice(ctx, variable.Key, c.mdaiCR.Name)
-		if err != nil {
-			return err
-		}
-		c.applySetTransformation(variable, envMap, valueAsSlice)
+		slice, _ := res.Value.([]string)
+		c.applySetTransformation(variable, envMap, slice)
 	case mdaiv1.VariableDataTypeString, mdaiv1.VariableDataTypeInt, mdaiv1.VariableDataTypeBoolean, mdaiv1.VariableDataTypeFloat:
-		// int is represented as string in Valkey, we assume writer guarantee the variable type is correct
-		// boolean is represented as string in Valkey: false or true, we assume writer guarantee the variable type is correct
-		value, found, err := dataAdapter.GetString(ctx, variable.Key, c.mdaiCR.Name)
-		if err != nil {
-			return err
-		}
-		if !found {
+		if !res.Found {
 			return nil
 		}
-		c.applySerializerToString(variable, envMap, value)
+		scalar, _ := res.Value.(string)
+		c.applySerializerToString(variable, envMap, scalar)
 	case mdaiv1.VariableDataTypeMap:
-		value, err := dataAdapter.GetMapAsString(ctx, variable.Key, c.mdaiCR.Name)
+		hash, _ := res.Value.(map[string]string)
+		rendered, err := renderMapForCollectorEnv(hash)
 		if err != nil {
 			return err
 		}
-		c.applySerializerToString(variable, envMap, value)
+		c.applySerializerToString(variable, envMap, rendered)
 	default:
 		c.logger.Error(fmt.Errorf("%w: %s", errUnsupportedVariableDataType, variable.DataType), errUnsupportedVariableDataType.Error(), "key", variable.Key)
 	}
 
 	return nil
+}
+
+func defaultRawIfDeclared(variable mdaiv1.Variable) json.RawMessage {
+	if variable.Default == nil {
+		return nil
+	}
+	return variable.Default.Raw
+}
+
+func renderMapForCollectorEnv(hash map[string]string) (string, error) {
+	out, err := yaml.Marshal(hash)
+	if err != nil {
+		return "", fmt.Errorf("render map: %w", err)
+	}
+	return string(out), nil
 }
 
 func (c HubAdapter) handleMetaVariable(ctx context.Context, dataAdapter *vars.ValkeyAdapter, variable mdaiv1.Variable, envMap map[string]string) error {
@@ -399,9 +419,11 @@ func (c HubAdapter) syncValkeyVariables(ctx context.Context, envMap, manualEnvMa
 		switch variable.Type {
 		case mdaiv1.VariableTypeManual:
 			manualEnvMap[key] = string(variable.DataType)
+			// Manual and computed variables are both stored directly in Valkey and resolved
+			// identically; only the manualEnvMap bookkeeping above is manual-specific.
 			fallthrough
 		case mdaiv1.VariableTypeComputed:
-			if err := c.handleComputedVariable(ctx, dataAdapter, variable, envMap); err != nil {
+			if err := c.handleStoredVariable(ctx, dataAdapter, variable, envMap); err != nil {
 				return err
 			}
 		case mdaiv1.VariableTypeMeta:
@@ -449,27 +471,103 @@ func (c HubAdapter) syncComputedConfigMapsAndRestart(ctx context.Context, envMap
 		return RequeueWithError(err)
 	}
 
-	// determine which namespaces to restart
-	namespaceToRestart := map[string]struct{}{}
+	envCMName := c.mdaiCR.Name + envConfigMapNamePostfix
+	// Dedup by namespace: one Get-then-update per namespace, so we can diff against the
+	// pre-update Data before createOrUpdateEnvConfigMap overwrites it.
+	changedByNamespace := map[string]map[string]struct{}{}
 	for _, collector := range collectors {
-		result, _, err := c.createOrUpdateEnvConfigMap(ctx, envMap, envConfigMapNamePostfix, collector.Namespace)
+		ns := collector.Namespace
+		if _, seen := changedByNamespace[ns]; seen {
+			continue
+		}
+		existing := &corev1.ConfigMap{}
+		var oldData map[string]string
+		if err := c.client.Get(ctx, client.ObjectKey{Namespace: ns, Name: envCMName}, existing); err == nil {
+			oldData = existing.Data
+		} else if !apierrors.IsNotFound(err) {
+			return RequeueWithError(err)
+		}
+
+		result, _, err := c.createOrUpdateEnvConfigMap(ctx, envMap, envConfigMapNamePostfix, ns)
 		if err != nil {
 			return RequeueWithError(err)
 		}
 		if result == controllerutil.OperationResultCreated || result == controllerutil.OperationResultUpdated {
-			namespaceToRestart[collector.Namespace] = struct{}{}
+			changedByNamespace[ns] = diffEnvMapKeys(oldData, envMap)
+		} else {
+			changedByNamespace[ns] = nil
 		}
 	}
 
-	// trigger restarts
 	for _, collector := range collectors {
-		if _, shouldRestart := namespaceToRestart[collector.Namespace]; shouldRestart {
-			if err := c.restartCollectorAndAudit(ctx, collector, envMap); err != nil {
-				return RequeueWithError(err)
-			}
+		changed := changedByNamespace[collector.Namespace]
+		if len(changed) == 0 {
+			continue
+		}
+		consumed, wildcard := extractCollectorEnvRefs(collector)
+		if !wildcard && !anyKeyInSet(changed, consumed) {
+			c.logger.Info("Skipping collector restart: no consumed variables changed",
+				"name", collector.Name, "namespace", collector.Namespace)
+			continue
+		}
+		if err := c.restartCollectorAndAudit(ctx, collector, envMap); err != nil {
+			return RequeueWithError(err)
 		}
 	}
 	return ContinueProcessing()
+}
+
+var (
+	// envRef matches both `${env:NAME}` and the scheme-less `${NAME}`: the collector's default
+	// scheme is "env", so a brace ref with no scheme also reads from the environment.
+	envRef = regexp.MustCompile(`\$\{(?:env:)?([A-Za-z_][A-Za-z0-9_]*)(?::-[^}]*)?\}`)
+	// envRefNested flags any nested `${...${...}}`: envRef can't resolve nesting without
+	// undercounting consumed vars, so any nesting forces a wildcard restart.
+	envRefNested = regexp.MustCompile(`\$\{[^}]*\$\{`)
+)
+
+// extractCollectorEnvRefs returns the env-var names referenced by the collector's OTEL config.
+// The wildcard return is set when the config contains references the parser cannot resolve
+// (yaml error, or indirection like `${env:${PREFIX}_FOO}`); callers must then treat the
+// collector as consuming every variable.
+func extractCollectorEnvRefs(collector v1beta1.OpenTelemetryCollector) (map[string]struct{}, bool) {
+	cfg, err := collector.Spec.Config.Yaml()
+	if err != nil {
+		return nil, true
+	}
+	if envRefNested.MatchString(cfg) {
+		return nil, true
+	}
+	matches := envRef.FindAllStringSubmatch(cfg, -1)
+	refs := make(map[string]struct{}, len(matches))
+	for _, m := range matches {
+		refs[m[1]] = struct{}{}
+	}
+	return refs, false
+}
+
+func diffEnvMapKeys(old, current map[string]string) map[string]struct{} {
+	changed := map[string]struct{}{}
+	for k, v := range current {
+		if oldV, ok := old[k]; !ok || oldV != v {
+			changed[k] = struct{}{}
+		}
+	}
+	for k := range old {
+		if _, ok := current[k]; !ok {
+			changed[k] = struct{}{}
+		}
+	}
+	return changed
+}
+
+func anyKeyInSet(keys, set map[string]struct{}) bool {
+	for k := range keys {
+		if _, ok := set[k]; ok {
+			return true
+		}
+	}
+	return false
 }
 
 func buildVariableSchemaEnvMap(variables []mdaiv1.Variable) (map[string]string, error) {
@@ -480,6 +578,7 @@ func buildVariableSchemaEnvMap(variables []mdaiv1.Variable) (map[string]string, 
 			DataType:    variable.DataType,
 			StorageType: variable.StorageType,
 			SerializeAs: variable.SerializeAs,
+			Default:     variable.Default,
 		}
 		if len(variable.VariableRefs) > 0 {
 			entry.VariableRefs = append([]string(nil), variable.VariableRefs...)

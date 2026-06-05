@@ -557,7 +557,7 @@ spec:
                           setVariable:
                             properties:
                               scalar:
-                                description: Target set variable name
+                                description: Target scalar variable name
                                 maxLength: 63
                                 minLength: 1
                                 pattern: ^[a-zA-Z_][a-zA-Z0-9_]*$
@@ -569,6 +569,17 @@ spec:
                             required:
                             - scalar
                             - value
+                            type: object
+                          unsetVariable:
+                            properties:
+                              scalar:
+                                description: Target scalar variable name
+                                maxLength: 63
+                                minLength: 1
+                                pattern: ^[a-zA-Z_][a-zA-Z0-9_]*$
+                                type: string
+                            required:
+                            - scalar
                             type: object
                         type: object
                       type: array
@@ -609,16 +620,20 @@ spec:
                       enum:
                       - string
                       - int
+                      - float
                       - set
                       - map
                       - boolean
                       - metaHashSet
                       - metaPriorityList
                       type: string
+                    default:
+                      description: Default value applied when no value is stored.
+                        Manual variables only; shape validated against dataType.
+                      x-kubernetes-preserve-unknown-fields: true
                     key:
                       description: Key The key for which this variable's managed value
-                        is assigned. Will also be used as the environment variable
-                        name for variables of type "string"
+                        is assigned.
                       maxLength: 63
                       minLength: 1
                       pattern: ^[a-zA-Z_][a-zA-Z0-9_]*$
@@ -695,7 +710,7 @@ spec:
                     reason: FieldValueInvalid
                     rule: 'self.type == ''meta'' ? self.dataType in [''metaHashSet'',
                       ''metaPriorityList''] : self.dataType in [''string'', ''int'',
-                      ''boolean'', ''set'', ''map'']'
+                      ''float'', ''boolean'', ''set'', ''map'']'
                 type: array
             type: object
           status:

@@ -458,6 +458,16 @@ var _ = Describe("Manager", Ordered, func() {
 			Expect(metricsOutput).To(ContainSubstring(`controller_runtime_reconcile_panics_total{controller="mdaihub"} 0`))
 		})
 
+		It("applies a managed OTEL CR whose config references no variables", func() {
+			By("applying a managed OTEL CR with no ${env:...} references in its config")
+			applyCollector := func(g Gomega) {
+				cmd := exec.Command("kubectl", "apply", "-f", "test/e2e/testdata/collector-no-envrefs.yaml", "-n", otelNamespace)
+				_, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+			}
+			Eventually(applyCollector).Should(Succeed())
+		})
+
 		It("should create the config map for variables", func() {
 			By("verifying the config map for variables exists")
 			configMapExists("mdaihub-sample-variables", otelNamespace)
@@ -467,7 +477,7 @@ var _ = Describe("Manager", Ordered, func() {
 			By("verifying the config map content for variables defaults")
 			verifyConfigMap := func(g Gomega) {
 				data := getDataFromMap(g, "mdaihub-sample-variables", otelNamespace)
-				g.Expect(data).To(HaveLen(8))
+				g.Expect(data).To(HaveLen(9))
 				g.Expect(data["ATTRIBUTES"]).To(Equal("{}\n"))
 				g.Expect(data["SEVERITY_FILTERS_BY_LEVEL"]).To(Equal("{}\n"))
 				g.Expect(data["SERVICE_LIST_2_CSV"]).To(Equal(""))
@@ -476,6 +486,9 @@ var _ = Describe("Manager", Ordered, func() {
 				g.Expect(data["SERVICE_LIST_REGEX"]).To(Equal(""))
 				g.Expect(data["SERVICE_LIST_CSV_MANUAL"]).To(Equal(""))
 				g.Expect(data["SERVICE_LIST_REGEX_MANUAL"]).To(Equal(""))
+				// MANUAL_FILTER carries the declared `default: ""` — surfaced now that
+				// the operator materializes defaults into the env-var ConfigMap.
+				g.Expect(data["MANUAL_FILTER"]).To(Equal(""))
 			}
 			Eventually(verifyConfigMap).Should(Succeed())
 
@@ -850,6 +863,7 @@ var _ = Describe("Manager", Ordered, func() {
 			By("executing the valkey-cli command to update the service-list variable")
 
 			initialRevision := getOtelDeploymentRevision("gateway-collector", otelNamespace)
+			noEnvRefsInitialRevision := getOtelDeploymentRevision("gateway-no-envrefs-collector", otelNamespace)
 
 			portForwardCmd := exec.Command("kubectl", "port-forward", "--namespace", "default",
 				"svc/valkey-primary", "6379:6379")
@@ -946,8 +960,8 @@ var _ = Describe("Manager", Ordered, func() {
 			By("validating that the config map has the updated variable value")
 			verifyConfigMap := func(g Gomega) {
 				data := getDataFromMap(g, "mdaihub-sample-variables", otelNamespace)
-				g.Expect(data).To(HaveLen(14))
-				g.Expect(data["ATTRIBUTES"]).To(Equal("send_batch_size: 100\ntimeout: 15s\n"))
+				g.Expect(data).To(HaveLen(15))
+				g.Expect(data["ATTRIBUTES"]).To(Equal("send_batch_size: \"100\"\ntimeout: 15s\n"))
 				g.Expect(data["SERVICE_ALERTED"]).To(Equal("true"))
 				g.Expect(data["SERVICE_HASH_SET"]).To(Equal("INFO|WARNING"))
 				g.Expect(data["SERVICE_LIST_2_CSV"]).To(Equal(""))
@@ -955,6 +969,7 @@ var _ = Describe("Manager", Ordered, func() {
 				g.Expect(data["DEFAULT"]).To(Equal("default"))
 				g.Expect(data["FILTER"]).To(Equal("- severity_number < SEVERITY_NUMBER_WARN\n- " +
 					"IsMatch(resource.attributes[\"service.name\"], \"${env:SERVICE_LIST}\")"))
+				g.Expect(data["MANUAL_FILTER"]).To(Equal(""))
 				g.Expect(data["SERVICE_LIST_CSV"]).To(Equal("noisy-service"))
 				g.Expect(data["SERVICE_LIST_REGEX"]).To(Equal("noisy-service"))
 				g.Expect(data["SERVICE_PRIORITY"]).To(Equal("default"))
@@ -984,6 +999,13 @@ var _ = Describe("Manager", Ordered, func() {
 				g.Expect(updatedRevision).To(Equal(1))
 			}
 			Eventually(verifyUnmanagedOtelDeployment).Should(Succeed())
+
+			By("validating that a managed collector with no env references was not restarted")
+			verifyNoEnvRefsOtelDeployment := func(g Gomega) {
+				updatedRevision := getOtelDeploymentRevision("gateway-no-envrefs-collector", otelNamespace)
+				g.Expect(updatedRevision).To(Equal(noEnvRefsInitialRevision))
+			}
+			Consistently(verifyNoEnvRefsOtelDeployment, "20s", "5s").Should(Succeed())
 		})
 
 		It("can remove all variables from an existing MdaiHub CR", func() {
@@ -1257,6 +1279,11 @@ metadata:
 			_, err := utils.Run(cmd)
 			Expect(err).NotTo(HaveOccurred())
 
+			cmd = exec.Command("kubectl", "delete", "-f", "test/e2e/testdata/collector-no-envrefs.yaml",
+				"-n", otelNamespace, "--wait=false", "--ignore-not-found=true")
+			_, err = utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+
 			By("waiting for the collector to be fully removed")
 			verifyGone := func(g Gomega) {
 				cmd := exec.Command("kubectl", "get", "opentelemetrycollector", "gateway", "-n", otelNamespace)
@@ -1264,6 +1291,13 @@ metadata:
 				g.Expect(err).To(HaveOccurred(), "expected collector to be gone")
 			}
 			Eventually(verifyGone, "60s", "3s").Should(Succeed())
+
+			verifyNoEnvRefsGone := func(g Gomega) {
+				cmd := exec.Command("kubectl", "get", "opentelemetrycollector", "gateway-no-envrefs", "-n", otelNamespace)
+				_, err := utils.Run(cmd)
+				g.Expect(err).To(HaveOccurred(), "expected collector to be gone")
+			}
+			Eventually(verifyNoEnvRefsGone, "60s", "3s").Should(Succeed())
 		})
 	})
 })
@@ -1304,11 +1338,13 @@ func verifyVariableSchemaConfigMap(g Gomega, data map[string]any) {
 	g.Expect(manualFilter["dataType"]).To(Equal("string"))
 	g.Expect(manualFilter["storageType"]).To(Equal("mdai-valkey"))
 	g.Expect(manualFilter).To(HaveKey("serializeAs"))
+	g.Expect(manualFilter).To(HaveKeyWithValue("default", ""))
 	g.Expect(manualFilter).NotTo(HaveKey("value"))
 
 	serviceListManual := getSchemaEntryFromConfigMapData(g, data, "service_list_manual")
 	g.Expect(serviceListManual["type"]).To(Equal("manual"))
 	g.Expect(serviceListManual["dataType"]).To(Equal("set"))
+	g.Expect(serviceListManual).NotTo(HaveKey("default"))
 	g.Expect(serviceListManual).NotTo(HaveKey("value"))
 
 	myHashSet := getSchemaEntryFromConfigMapData(g, data, "my_hash_set")
