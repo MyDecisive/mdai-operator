@@ -5,15 +5,24 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
+// +kubebuilder:validation:XValidation:rule="has(self.telemetry_type) && self.telemetry_type == 'Logs' ? has(self.filter) && has(self.filter.logs) && !has(self.filter.traces) : true", message="When telemetry_type is 'Logs', filter.logs is required and filter.traces must be omitted."
+// +kubebuilder:validation:XValidation:rule="has(self.telemetry_type) && self.telemetry_type == 'Traces' ? has(self.filter) && has(self.filter.traces) && !has(self.filter.logs) : true", message="When telemetry_type is 'Traces', filter.traces is required and filter.logs must be omitted."
+// +kubebuilder:validation:XValidation:rule="self.metrics_backend == 'prometheus' ? self.aggregation_temporality == 'cumulative' : true", message="When metrics_backend is 'prometheus', aggregation_temporality must be 'cumulative'."
 type Observer struct {
 	// +kubebuilder:validation:Required
 	Name string `json:"name" yaml:"name"`
+	// +kubebuilder:validation:Enum=logs;metrics;traces
+	TelemetryType *string `json:"telemetry_type" yaml:"telemetry_type"` //nolint:tagliatelle
 	// +kubebuilder:validation:Required
 	LabelResourceAttributes []string `json:"labelResourceAttributes" yaml:"labelResourceAttributes"`
 	// +optional
 	CountMetricName *string `json:"countMetricName,omitempty" yaml:"countMetricName,omitempty"`
 	// +optional
 	BytesMetricName *string `json:"bytesMetricName,omitempty" yaml:"bytesMetricName,omitempty"`
+	// +kubebuilder:validation:Enum=cumulative;delta
+	AggregationTemporality string `json:"aggregation_temporality" yaml:"aggregation_temporality"` //nolint:tagliatelle
+	// +kubebuilder:validation:Enum=prometheus;greptimedb
+	MetricsBackend string `json:"metrics_backend" yaml:"metrics_backend"` //nolint:tagliatelle
 	// +optional
 	Filter *ObserverFilter `json:"filter,omitempty" yaml:"filter,omitempty"`
 }
@@ -23,11 +32,18 @@ type ObserverLogsFilter struct {
 	LogRecord []string `json:"log_record" yaml:"log_record"` //nolint:tagliatelle
 }
 
+type ObserverTracesFilter struct {
+	// +kubebuilder:validation:Required
+	Span []string `json:"span" yaml:"span"` //nolint:tagliatelle
+}
+
 type ObserverFilter struct {
 	// +optional
 	ErrorMode *string `json:"error_mode" yaml:"error_mode"` //nolint:tagliatelle
 	// +optional
 	Logs *ObserverLogsFilter `json:"logs" yaml:"logs"`
+	// +optional
+	Traces *ObserverTracesFilter `json:"traces" yaml:"traces"`
 }
 
 // TODO: Add metrics and trace filters

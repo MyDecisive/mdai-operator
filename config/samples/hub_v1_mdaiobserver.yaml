@@ -9,21 +9,33 @@ metadata:
 spec:
   observers:
     - name: watcher1
+      telemetry_type: traces
+      metrics_backend: prometheus
+      aggregation_temporality: cumulative
       labelResourceAttributes:
         - service.name
       countMetricName: mdai_watcher_one_count_total
       bytesMetricName: mdai_watcher_one_bytes_total
     - name: watcher2
+      telemetry_type: traces
+      metrics_backend: prometheus
+      aggregation_temporality: cumulative
       labelResourceAttributes:
         - team
         - log_level
       countMetricName: mdai_watcher_two_count_total
     - name: watcher3
+      telemetry_type: traces
+      metrics_backend: prometheus
+      aggregation_temporality: cumulative
       labelResourceAttributes:
         - region
         - log_level
       bytesMetricName: mdai_watcher_three_count_total
     - name: watcher4
+      telemetry_type: logs
+      metrics_backend: greptimedb
+      aggregation_temporality: delta
       labelResourceAttributes:
         - service.name
         - team
@@ -35,6 +47,23 @@ spec:
         logs:
           log_record:
             - 'attributes["log_level"] == "INFO"'
+    - name: watcher5
+      telemetry_type: traces
+      metrics_backend: prometheus
+      aggregation_temporality: cumulative
+      labelResourceAttributes:
+        - service.name
+        - team
+        - region
+      countMetricName: mdai_watcher_five_count_total
+      bytesMetricName: mdai_watcher_five_bytes_total
+      filter:
+        error_mode: ignore
+        traces:
+          span:
+            - 'attributes["container.name"] == "app_container_1"'
+            - 'resource.attributes["host.name"] == "localhost"'
+            - 'name == "app_3"'
 
   observerResource:
     grpcReceiverMaxMsgSize: 10

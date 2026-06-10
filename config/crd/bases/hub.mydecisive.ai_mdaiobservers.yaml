@@ -158,6 +158,11 @@ spec:
               observers:
                 items:
                   properties:
+                    aggregation_temporality:
+                      enum:
+                      - cumulative
+                      - delta
+                      type: string
                     bytesMetricName:
                       type: string
                     countMetricName:
@@ -175,17 +180,55 @@ spec:
                           required:
                           - log_record
                           type: object
+                        traces:
+                          properties:
+                            span:
+                              items:
+                                type: string
+                              type: array
+                          required:
+                          - span
+                          type: object
                       type: object
                     labelResourceAttributes:
                       items:
                         type: string
                       type: array
+                    metrics_backend:
+                      enum:
+                      - prometheus
+                      - greptimedb
+                      type: string
                     name:
                       type: string
+                    telemetry_type:
+                      enum:
+                      - logs
+                      - metrics
+                      - traces
+                      type: string
                   required:
+                  - aggregation_temporality
                   - labelResourceAttributes
+                  - metrics_backend
                   - name
+                  - telemetry_type
                   type: object
+                  x-kubernetes-validations:
+                  - message: When telemetry_type is 'Logs', filter.logs is required
+                      and filter.traces must be omitted.
+                    rule: 'has(self.telemetry_type) && self.telemetry_type == ''Logs''
+                      ? has(self.filter) && has(self.filter.logs) && !has(self.filter.traces)
+                      : true'
+                  - message: When telemetry_type is 'Traces', filter.traces is required
+                      and filter.logs must be omitted.
+                    rule: 'has(self.telemetry_type) && self.telemetry_type == ''Traces''
+                      ? has(self.filter) && has(self.filter.traces) && !has(self.filter.logs)
+                      : true'
+                  - message: When metrics_backend is 'prometheus', aggregation_temporality
+                      must be 'cumulative'.
+                    rule: 'self.metrics_backend == ''prometheus'' ? self.aggregation_temporality
+                      == ''cumulative'' : true'
                 type: array
             type: object
           status:

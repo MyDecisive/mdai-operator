@@ -16,9 +16,13 @@ import (
 )
 
 const (
-	observerDefaultImage         = "public.ecr.aws/decisiveai/observer-collector:0.1"
-	mdaiObserverHubComponent     = "mdai-observer"
-	mdaiObserverResourceBaseName = "mdai-observer"
+	observerDefaultImage             = "public.ecr.aws/decisiveai/observer-collector:0.1"
+	mdaiObserverHubComponent         = "mdai-observer"
+	mdaiObserverResourceBaseName     = "mdai-observer"
+	observerTelemetryTypeLogs        = "logs"
+	observerTelemetryTypeTraces      = "traces"
+	observerMetricsBackendGreptimeDB = "greptimedb"
+	observerMetricsBackendPrometheus = "prometheus"
 )
 
 //go:embed config/observer_base_collector_config.yaml
@@ -253,7 +257,8 @@ func (c ObserverAdapter) getObserverCollectorConfig(observers []mdaiv1.Observer,
 			Set("max_recv_msg_size_mib", *grpcReceiverMaxMsgSize)
 	}
 
-	dataVolumeReceivers := make([]string, 0)
+	prometheusDataVolumeReceivers := make([]string, 0)
+	greptimeDataVolumeReceivers := make([]string, 0)
 
 	processors := config.MustMap("processors")
 	connectors := config.MustMap("connectors")
@@ -271,6 +276,9 @@ func (c ObserverAdapter) getObserverCollectorConfig(observers []mdaiv1.Observer,
 		dvKey := "datavolume/" + observerName
 		dvSpec := map[string]any{
 			"label_resource_attributes": obs.LabelResourceAttributes,
+		}
+		if obs.AggregationTemporality != "" {
+			dvSpec["aggregation_temporality"] = obs.AggregationTemporality
 		}
 		if obs.CountMetricName != nil {
 			dvSpec["count_metric_name"] = *obs.CountMetricName
@@ -298,20 +306,48 @@ func (c ObserverAdapter) getObserverCollectorConfig(observers []mdaiv1.Observer,
 			"exporters":  []string{dvKey},
 		}
 
-		pipelines.Set("logs/"+observerName, pipeline)
-		pipelines.Set("traces/"+observerName, pipeline)
+		if obs.TelemetryType != nil {
+			switch *obs.TelemetryType {
+			case observerTelemetryTypeLogs:
+				pipelines.Set("logs/"+observerName, pipeline)
+			case observerTelemetryTypeTraces:
+				pipelines.Set("traces/"+observerName, pipeline)
+			}
+		}
 
-		dataVolumeReceivers = append(dataVolumeReceivers, dvKey)
+		metricsBackend := obs.MetricsBackend
+		if metricsBackend == "" {
+			metricsBackend = observerMetricsBackendPrometheus
+		}
+		switch metricsBackend {
+		case observerMetricsBackendGreptimeDB:
+			greptimeDataVolumeReceivers = append(greptimeDataVolumeReceivers, dvKey)
+		case observerMetricsBackendPrometheus:
+			prometheusDataVolumeReceivers = append(prometheusDataVolumeReceivers, dvKey)
+		}
 	}
 
-	pipelines.
-		Set("metrics/observeroutput",
-			map[string]any{
-				"receivers":  dataVolumeReceivers,
-				"processors": []string{"deltatocumulative"},
-				"exporters":  []string{"prometheus"},
-			},
-		)
+	if len(prometheusDataVolumeReceivers) > 0 || len(greptimeDataVolumeReceivers) == 0 {
+		pipelines.
+			Set("metrics/observeroutput",
+				map[string]any{
+					"receivers":  prometheusDataVolumeReceivers,
+					"processors": []string{"deltatocumulative"},
+					"exporters":  []string{"prometheus"},
+				},
+			)
+	}
+
+	if len(greptimeDataVolumeReceivers) > 0 {
+		configureGreptimeDBMetricsExporter(config)
+		pipelines.
+			Set("metrics/observeroutput/greptimedb",
+				map[string]any{
+					"receivers": greptimeDataVolumeReceivers,
+					"exporters": []string{"otlphttp/greptimedb"},
+				},
+			)
+	}
 
 	if ownLogsOtlpEndpoint := observerResource.OwnLogsOtlpEndpoint; ownLogsOtlpEndpoint != nil && *ownLogsOtlpEndpoint != "" {
 		telemetry.Set("logs", map[string]any{
@@ -333,6 +369,35 @@ func (c ObserverAdapter) getObserverCollectorConfig(observers []mdaiv1.Observer,
 	return config.YAML()
 }
 
+func configureGreptimeDBMetricsExporter(config builder.ConfigBlock) {
+	username, password := getGreptimeDBCredentials()
+
+	config.MustMap("extensions").Set("basicauth/client", map[string]any{
+		"client_auth": map[string]any{
+			"username": username,
+			"password": password,
+		},
+	})
+	config.MustMap("exporters").Set("otlphttp/greptimedb", getGreptimeDBOTLPHTTPExporterConfig())
+
+	service := config.MustMap("service")
+	serviceExtensions := service.MustSlice("extensions")
+	service.Set("extensions", append(serviceExtensions, "basicauth/client"))
+}
+
+func getGreptimeDBOTLPHTTPExporterConfig() map[string]any {
+	return map[string]any{
+		"endpoint": "https://greptimedb.example.com/v1/otlp",
+		"auth": map[string]any{
+			"authenticator": "basicauth/client",
+		},
+	}
+}
+
+func getGreptimeDBCredentials() (string, string) {
+	return "<your_username>", "<your_password>"
+}
+
 func getObserverFilterProcessorConfig(filter *mdaiv1.ObserverFilter) map[string]any {
 	filterMap := map[string]any{}
 
@@ -346,6 +411,11 @@ func getObserverFilterProcessorConfig(filter *mdaiv1.ObserverFilter) map[string]
 		}
 	}
 
+	if filter.Traces != nil && len(filter.Traces.Span) > 0 {
+		filterMap["traces"] = map[string]any{
+			"span": filter.Traces.Span,
+		}
+	}
 	// TODO: Add metrics and trace filters
 
 	return filterMap
