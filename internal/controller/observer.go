@@ -4,12 +4,14 @@ import (
 	"context"
 	_ "embed"
 	"fmt"
+	"os"
 
 	mdaiv1 "github.com/mydecisive/mdai-operator/api/v1"
 	"github.com/mydecisive/mdai-operator/internal/builder"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/yaml"
@@ -23,6 +25,7 @@ const (
 	observerTelemetryTypeTraces      = "traces"
 	observerMetricsBackendGreptimeDB = "greptimedb"
 	observerMetricsBackendPrometheus = "prometheus"
+	greptimeDBUsersAuthSecretName    = "greptimedb-users-auth"
 )
 
 //go:embed config/observer_base_collector_config.yaml
@@ -91,6 +94,54 @@ func (c ObserverAdapter) createOrUpdateObserverResourceService(ctx context.Conte
 	return nil
 }
 
+func (c ObserverAdapter) createOrUpdateObserverResourceGreptimeDBSecret(ctx context.Context, namespace string) error {
+	operatorNamespace := os.Getenv(PodNamespaceEnv)
+	if operatorNamespace == "" {
+		return fmt.Errorf("%s is not set", PodNamespaceEnv)
+	}
+	if namespace == operatorNamespace {
+		c.logger.Info("Skipping GreptimeDB secret copy because observer namespace matches operator namespace", "namespace", namespace, "secret", greptimeDBUsersAuthSecretName)
+		return nil
+	}
+
+	sourceSecret := &corev1.Secret{}
+	if err := c.client.Get(ctx, types.NamespacedName{Name: greptimeDBUsersAuthSecretName, Namespace: operatorNamespace}, sourceSecret); err != nil {
+		return fmt.Errorf("failed to get GreptimeDB auth secret: %w", err)
+	}
+
+	desiredSecret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      greptimeDBUsersAuthSecretName,
+			Namespace: namespace,
+		},
+	}
+
+	operationResult, err := controllerutil.CreateOrUpdate(ctx, c.client, desiredSecret, func() error {
+		if err := controllerutil.SetControllerReference(c.observerCR, desiredSecret, c.scheme); err != nil {
+			c.logger.Error(err, "Failed to set owner reference on Secret", "secret", desiredSecret.Name)
+			return err
+		}
+
+		if desiredSecret.Labels == nil {
+			desiredSecret.Labels = map[string]string{
+				"app":                 c.getScopedObserverResourceName(""),
+				LabelManagedByMdaiKey: LabelManagedByMdaiValue,
+				HubComponentLabel:     mdaiObserverHubComponent,
+				hubNameLabel:          c.observerCR.Name,
+			}
+		}
+		desiredSecret.Type = sourceSecret.Type
+		desiredSecret.Data = copySecretData(sourceSecret.Data)
+		return nil
+	})
+	if err != nil {
+		return fmt.Errorf("failed to create or update GreptimeDB auth secret: %w", err)
+	}
+
+	c.logger.Info("GreptimeDB auth Secret created or updated successfully", "secret", desiredSecret.Name, "namespace", namespace, "operation", operationResult)
+	return nil
+}
+
 func (c ObserverAdapter) createOrUpdateObserverResourceConfigMap(ctx context.Context, observerResource mdaiv1.ObserverResource, observers []mdaiv1.Observer) (string, error) {
 	namespace := c.observerCR.Namespace
 	configMapName := c.getScopedObserverResourceName("config")
@@ -133,7 +184,7 @@ func (c ObserverAdapter) createOrUpdateObserverResourceConfigMap(ctx context.Con
 	return getConfigMapSHA(*desiredConfigMap)
 }
 
-func (c ObserverAdapter) createOrUpdateObserverResourceDeployment(ctx context.Context, namespace string, hash string, observerResource mdaiv1.ObserverResource) error {
+func (c ObserverAdapter) createOrUpdateObserverResourceDeployment(ctx context.Context, namespace string, hash string, observerResource mdaiv1.ObserverResource, greptimeDBEnabled bool) error {
 	name := c.getScopedObserverResourceName("")
 
 	deployment := &appsv1.Deployment{
@@ -210,6 +261,15 @@ func (c ObserverAdapter) createOrUpdateObserverResourceDeployment(ctx context.Co
 		containerSpec.Image = observerResource.Image
 		if observerResource.Resources != nil {
 			containerSpec.Resources = *observerResource.Resources
+		}
+		if greptimeDBEnabled {
+			containerSpec.EnvFrom = append(containerSpec.EnvFrom, corev1.EnvFromSource{
+				SecretRef: &corev1.SecretEnvSource{
+					LocalObjectReference: corev1.LocalObjectReference{
+						Name: greptimeDBUsersAuthSecretName,
+					},
+				},
+			})
 		}
 
 		deployment.Spec.Template.Spec.Containers = []corev1.Container{
@@ -369,13 +429,31 @@ func (c ObserverAdapter) getObserverCollectorConfig(observers []mdaiv1.Observer,
 	return config.YAML()
 }
 
-func configureGreptimeDBMetricsExporter(config builder.ConfigBlock) {
-	username, password := getGreptimeDBCredentials()
+func hasGreptimeDBObservers(observers []mdaiv1.Observer) bool {
+	for _, obs := range observers {
+		if obs.MetricsBackend == observerMetricsBackendGreptimeDB {
+			return true
+		}
+	}
+	return false
+}
 
+func copySecretData(data map[string][]byte) map[string][]byte {
+	if data == nil {
+		return nil
+	}
+	result := make(map[string][]byte, len(data))
+	for key, value := range data {
+		result[key] = append([]byte(nil), value...)
+	}
+	return result
+}
+
+func configureGreptimeDBMetricsExporter(config builder.ConfigBlock) {
 	config.MustMap("extensions").Set("basicauth/client", map[string]any{
 		"client_auth": map[string]any{
-			"username": username,
-			"password": password,
+			"username": "${env:GREPTIME_USER}",
+			"password": "${env:GREPTIME_PASSWD}",
 		},
 	})
 	config.MustMap("exporters").Set("otlphttp/greptimedb", getGreptimeDBOTLPHTTPExporterConfig())
@@ -387,15 +465,17 @@ func configureGreptimeDBMetricsExporter(config builder.ConfigBlock) {
 
 func getGreptimeDBOTLPHTTPExporterConfig() map[string]any {
 	return map[string]any{
-		"endpoint": "https://greptimedb.example.com/v1/otlp",
+		"endpoint": "http://${env:GREPTIME_HOST}:4000/v1/otlp",
 		"auth": map[string]any{
 			"authenticator": "basicauth/client",
 		},
+		"headers": map[string]any{
+			"x-greptime-db-name": "${env:GREPTIME_DATABASE}",
+		},
+		"tls": map[string]any{
+			"insecure": true,
+		},
 	}
-}
-
-func getGreptimeDBCredentials() (string, string) {
-	return "<your_username>", "<your_password>"
 }
 
 func getObserverFilterProcessorConfig(filter *mdaiv1.ObserverFilter) map[string]any {

@@ -5,11 +5,11 @@ metadata:
     app.kubernetes.io/name: mdai-operator
     app.kubernetes.io/managed-by: kustomize
   name: sample
-  namespace: mdai
+  namespace: default
 spec:
   observers:
     - name: watcher1
-      telemetry_type: traces
+      telemetry_type: logs
       metrics_backend: prometheus
       aggregation_temporality: cumulative
       labelResourceAttributes:
@@ -17,7 +17,7 @@ spec:
       countMetricName: mdai_watcher_one_count_total
       bytesMetricName: mdai_watcher_one_bytes_total
     - name: watcher2
-      telemetry_type: traces
+      telemetry_type: logs
       metrics_backend: prometheus
       aggregation_temporality: cumulative
       labelResourceAttributes:
@@ -25,7 +25,7 @@ spec:
         - log_level
       countMetricName: mdai_watcher_two_count_total
     - name: watcher3
-      telemetry_type: traces
+      telemetry_type: logs
       metrics_backend: prometheus
       aggregation_temporality: cumulative
       labelResourceAttributes:
