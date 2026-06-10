@@ -337,7 +337,7 @@ func (c ObserverAdapter) getObserverCollectorConfig(observers []mdaiv1.Observer,
 		dvSpec := map[string]any{
 			"label_resource_attributes": obs.LabelResourceAttributes,
 		}
-		if obs.AggregationTemporality != "" {
+		if obs.AggregationTemporality != 0 {
 			dvSpec["aggregation_temporality"] = obs.AggregationTemporality
 		}
 		if obs.CountMetricName != nil {

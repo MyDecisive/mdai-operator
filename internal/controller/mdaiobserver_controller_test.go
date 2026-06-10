@@ -9,6 +9,7 @@ import (
 	hubv1 "github.com/mydecisive/mdai-operator/api/v1"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"go.opentelemetry.io/collector/pdata/pmetric"
 	appsv1 "k8s.io/api/apps/v1"
 	v1core "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
@@ -207,7 +208,7 @@ func TestEnsureObserversSynchronized_WithGreptimeDBObserverCopiesSecret(t *testi
 		Name:                    "observer-greptimedb",
 		TelemetryType:           ptr.To("traces"),
 		LabelResourceAttributes: []string{"service.name"},
-		AggregationTemporality:  "delta",
+		AggregationTemporality:  pmetric.AggregationTemporalityDelta,
 		MetricsBackend:          "greptimedb",
 	}
 	observers := []hubv1.Observer{observer}
@@ -296,7 +297,7 @@ func TestEnsureObserversSynchronized_WithGreptimeDBObserverSkipsSecretCopyInOper
 					Name:                    "observer-greptimedb",
 					TelemetryType:           ptr.To("traces"),
 					LabelResourceAttributes: []string{"service.name"},
-					AggregationTemporality:  "delta",
+					AggregationTemporality:  pmetric.AggregationTemporalityDelta,
 					MetricsBackend:          "greptimedb",
 				},
 			},

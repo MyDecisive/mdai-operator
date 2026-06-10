@@ -9,6 +9,9 @@ metadata:
 spec:
   observers:
     - name: service-bytes-watcher
+      telemetry_type: logs
+      metrics_backend: prometheus
+      aggregation_temporality: 2
       labelResourceAttributes:
       - service.name
       - team

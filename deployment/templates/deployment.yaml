@@ -39,6 +39,26 @@ spec:
             secretKeyRef:
               key: VALKEY_PASSWORD
               name: valkey-secret
+        - name: GREPTIME_HOST
+          valueFrom:
+            secretKeyRef:
+              key: GREPTIME_HOST
+              name: greptimedb-users-auth
+        - name: GREPTIME_PORT
+          valueFrom:
+            secretKeyRef:
+              key: GREPTIME_PORT
+              name: greptimedb-users-auth
+        - name: GREPTIME_USER
+          valueFrom:
+            secretKeyRef:
+              key: GREPTIME_USER
+              name: greptimedb-users-auth
+        - name: GREPTIME_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              key: GREPTIME_PASSWORD
+              name: greptimedb-users-auth
         - name: OTEL_EXPORTER_OTLP_ENDPOINT
           value: {{ quote .Values.controllerManager.manager.env.otelExporterOtlpEndpoint
             }}

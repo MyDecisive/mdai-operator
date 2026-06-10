@@ -9,6 +9,7 @@ import (
 	"github.com/samber/lo"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.opentelemetry.io/collector/pdata/pmetric"
 	"sigs.k8s.io/yaml"
 )
 
@@ -58,7 +59,7 @@ func TestGetObserverCollectorConfig(t *testing.T) {
 					LabelResourceAttributes: []string{"mdai_service"},
 					CountMetricName:         lo.ToPtr("items_received_by_service_total"),
 					BytesMetricName:         lo.ToPtr("bytes_received_by_service_total"),
-					AggregationTemporality:  "cumulative",
+					AggregationTemporality:  pmetric.AggregationTemporalityCumulative,
 					MetricsBackend:          "prometheus",
 					Filter: &mdaiv1.ObserverFilter{
 						ErrorMode: lo.ToPtr("ignore"),
@@ -73,7 +74,7 @@ func TestGetObserverCollectorConfig(t *testing.T) {
 					LabelResourceAttributes: []string{"mdai_service"},
 					CountMetricName:         lo.ToPtr("items_sent_by_service_total"),
 					BytesMetricName:         lo.ToPtr("bytes_sent_by_service_total"),
-					AggregationTemporality:  "cumulative",
+					AggregationTemporality:  pmetric.AggregationTemporalityCumulative,
 					MetricsBackend:          "prometheus",
 					Filter: &mdaiv1.ObserverFilter{
 						ErrorMode: lo.ToPtr("ignore"),
@@ -124,13 +125,13 @@ func TestGetObserverCollectorConfig(t *testing.T) {
 				connectors := config.MustMap("connectors")
 				require.NotNil(t, connectors.MustMap("datavolume/observer-in"))
 				assert.Equal(t, []any{"mdai_service"}, connectors.MustMap("datavolume/observer-in").MustSlice("label_resource_attributes"))
-				assert.Equal(t, "cumulative", connectors.MustMap("datavolume/observer-in").MustString("aggregation_temporality"))
+				assert.Equal(t, 2, int(connectors.MustMap("datavolume/observer-in").MustFloat("aggregation_temporality")))
 				assert.Equal(t, "items_received_by_service_total", connectors.MustMap("datavolume/observer-in").MustString("count_metric_name"))
 				assert.Equal(t, "bytes_received_by_service_total", connectors.MustMap("datavolume/observer-in").MustString("bytes_metric_name"))
 
 				require.NotNil(t, connectors.MustMap("datavolume/observer-out"))
 				assert.Equal(t, []any{"mdai_service"}, connectors.MustMap("datavolume/observer-out").MustSlice("label_resource_attributes"))
-				assert.Equal(t, "cumulative", connectors.MustMap("datavolume/observer-out").MustString("aggregation_temporality"))
+				assert.Equal(t, 2, int(connectors.MustMap("datavolume/observer-out").MustFloat("aggregation_temporality")))
 				assert.Equal(t, "items_sent_by_service_total", connectors.MustMap("datavolume/observer-out").MustString("count_metric_name"))
 				assert.Equal(t, "bytes_sent_by_service_total", connectors.MustMap("datavolume/observer-out").MustString("bytes_metric_name"))
 			},
@@ -142,7 +143,7 @@ func TestGetObserverCollectorConfig(t *testing.T) {
 					Name:                    "trace-observer",
 					TelemetryType:           lo.ToPtr("traces"),
 					LabelResourceAttributes: []string{"service.name"},
-					AggregationTemporality:  "delta",
+					AggregationTemporality:  pmetric.AggregationTemporalityDelta,
 					MetricsBackend:          "greptimedb",
 					Filter: &mdaiv1.ObserverFilter{
 						ErrorMode: lo.ToPtr("ignore"),
@@ -168,7 +169,7 @@ func TestGetObserverCollectorConfig(t *testing.T) {
 				assert.Equal(t, []any{"otlphttp/greptimedb"}, greptimePipeline.MustSlice("exporters"))
 
 				connectors := config.MustMap("connectors")
-				assert.Equal(t, "delta", connectors.MustMap("datavolume/trace-observer").MustString("aggregation_temporality"))
+				assert.Equal(t, 1, int(connectors.MustMap("datavolume/trace-observer").MustFloat("aggregation_temporality")))
 
 				exporter := config.MustMap("exporters").MustMap("otlphttp/greptimedb")
 				assert.Equal(t, "http://${env:GREPTIME_HOST}:4000/v1/otlp", exporter.MustString("endpoint"))

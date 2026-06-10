@@ -11,7 +11,7 @@ spec:
     - name: watcher1
       telemetry_type: logs
       metrics_backend: prometheus
-      aggregation_temporality: cumulative
+      aggregation_temporality: 2
       labelResourceAttributes:
         - service.name
       countMetricName: mdai_watcher_one_count_total
@@ -19,7 +19,7 @@ spec:
     - name: watcher2
       telemetry_type: logs
       metrics_backend: prometheus
-      aggregation_temporality: cumulative
+      aggregation_temporality: 2
       labelResourceAttributes:
         - team
         - log_level
@@ -27,7 +27,7 @@ spec:
     - name: watcher3
       telemetry_type: logs
       metrics_backend: prometheus
-      aggregation_temporality: cumulative
+      aggregation_temporality: 2
       labelResourceAttributes:
         - region
         - log_level
@@ -35,7 +35,7 @@ spec:
     - name: watcher4
       telemetry_type: logs
       metrics_backend: greptimedb
-      aggregation_temporality: delta
+      aggregation_temporality: 1
       labelResourceAttributes:
         - service.name
         - team
@@ -50,7 +50,7 @@ spec:
     - name: watcher5
       telemetry_type: traces
       metrics_backend: prometheus
-      aggregation_temporality: cumulative
+      aggregation_temporality: 2
       labelResourceAttributes:
         - service.name
         - team

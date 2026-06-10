@@ -1,16 +1,18 @@
 package v1
 
 import (
+	"go.opentelemetry.io/collector/pdata/pmetric"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-// +kubebuilder:validation:XValidation:rule="has(self.telemetry_type) && self.telemetry_type == 'Logs' ? has(self.filter) && has(self.filter.logs) && !has(self.filter.traces) : true", message="When telemetry_type is 'Logs', filter.logs is required and filter.traces must be omitted."
-// +kubebuilder:validation:XValidation:rule="has(self.telemetry_type) && self.telemetry_type == 'Traces' ? has(self.filter) && has(self.filter.traces) && !has(self.filter.logs) : true", message="When telemetry_type is 'Traces', filter.traces is required and filter.logs must be omitted."
-// +kubebuilder:validation:XValidation:rule="self.metrics_backend == 'prometheus' ? self.aggregation_temporality == 'cumulative' : true", message="When metrics_backend is 'prometheus', aggregation_temporality must be 'cumulative'."
+// +kubebuilder:validation:XValidation:rule="self.telemetry_type == 'logs' && has(self.filter) ? !has(self.filter.traces) : true", message="When telemetry_type is 'logs', filter.traces must be omitted."
+// +kubebuilder:validation:XValidation:rule="self.telemetry_type == 'traces' && has(self.filter) ? !has(self.filter.logs) : true", message="When telemetry_type is 'traces', filter.logs must be omitted."
+// +kubebuilder:validation:XValidation:rule="self.metrics_backend == 'prometheus' ? self.aggregation_temporality == 2 : true", message="When metrics_backend is 'prometheus', aggregation_temporality must be 'cumulative'."
 type Observer struct {
 	// +kubebuilder:validation:Required
 	Name string `json:"name" yaml:"name"`
+	// +kubebuilder:validation:Required
 	// +kubebuilder:validation:Enum=logs;metrics;traces
 	TelemetryType *string `json:"telemetry_type" yaml:"telemetry_type"` //nolint:tagliatelle
 	// +kubebuilder:validation:Required
@@ -19,8 +21,12 @@ type Observer struct {
 	CountMetricName *string `json:"countMetricName,omitempty" yaml:"countMetricName,omitempty"`
 	// +optional
 	BytesMetricName *string `json:"bytesMetricName,omitempty" yaml:"bytesMetricName,omitempty"`
-	// +kubebuilder:validation:Enum=cumulative;delta
-	AggregationTemporality string `json:"aggregation_temporality" yaml:"aggregation_temporality"` //nolint:tagliatelle
+	// +kubebuilder:validation:Required
+	// +kubebuilder:validation:Type=integer
+	// +kubebuilder:validation:Format=int32
+	// +kubebuilder:validation:Enum=1;2
+	AggregationTemporality pmetric.AggregationTemporality `json:"aggregation_temporality" yaml:"aggregation_temporality"` //nolint:tagliatelle
+	// +kubebuilder:validation:Required
 	// +kubebuilder:validation:Enum=prometheus;greptimedb
 	MetricsBackend string `json:"metrics_backend" yaml:"metrics_backend"` //nolint:tagliatelle
 	// +optional
