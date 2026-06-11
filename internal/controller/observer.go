@@ -5,6 +5,7 @@ import (
 	_ "embed"
 	"fmt"
 	"os"
+	"strings"
 
 	mdaiv1 "github.com/mydecisive/mdai-operator/api/v1"
 	"github.com/mydecisive/mdai-operator/internal/builder"
@@ -319,6 +320,7 @@ func (c ObserverAdapter) getObserverCollectorConfig(observers []mdaiv1.Observer,
 
 	prometheusDataVolumeReceivers := make([]string, 0)
 	greptimeDataVolumeReceivers := make([]string, 0)
+	greptimeObservers := make([]mdaiv1.Observer, 0)
 
 	processors := config.MustMap("processors")
 	connectors := config.MustMap("connectors")
@@ -382,6 +384,7 @@ func (c ObserverAdapter) getObserverCollectorConfig(observers []mdaiv1.Observer,
 		switch metricsBackend {
 		case observerMetricsBackendGreptimeDB:
 			greptimeDataVolumeReceivers = append(greptimeDataVolumeReceivers, dvKey)
+			greptimeObservers = append(greptimeObservers, obs)
 		case observerMetricsBackendPrometheus:
 			prometheusDataVolumeReceivers = append(prometheusDataVolumeReceivers, dvKey)
 		}
@@ -399,7 +402,7 @@ func (c ObserverAdapter) getObserverCollectorConfig(observers []mdaiv1.Observer,
 	}
 
 	if len(greptimeDataVolumeReceivers) > 0 {
-		configureGreptimeDBMetricsExporter(config)
+		configureGreptimeDBMetricsExporter(config, greptimeObservers)
 		pipelines.
 			Set("metrics/observeroutput/greptimedb",
 				map[string]any{
@@ -449,33 +452,55 @@ func copySecretData(data map[string][]byte) map[string][]byte {
 	return result
 }
 
-func configureGreptimeDBMetricsExporter(config builder.ConfigBlock) {
+func configureGreptimeDBMetricsExporter(config builder.ConfigBlock, observers []mdaiv1.Observer) {
 	config.MustMap("extensions").Set("basicauth/client", map[string]any{
 		"client_auth": map[string]any{
 			"username": "${env:GREPTIME_USER}",
 			"password": "${env:GREPTIME_PASSWD}",
 		},
 	})
-	config.MustMap("exporters").Set("otlphttp/greptimedb", getGreptimeDBOTLPHTTPExporterConfig())
+	config.MustMap("exporters").Set("otlphttp/greptimedb", getGreptimeDBOTLPHTTPExporterConfig(observers))
 
 	service := config.MustMap("service")
 	serviceExtensions := service.MustSlice("extensions")
 	service.Set("extensions", append(serviceExtensions, "basicauth/client"))
 }
 
-func getGreptimeDBOTLPHTTPExporterConfig() map[string]any {
+func getGreptimeDBOTLPHTTPExporterConfig(observers []mdaiv1.Observer) map[string]any {
 	return map[string]any{
 		"endpoint": "http://${env:GREPTIME_HOST}:4000/v1/otlp",
 		"auth": map[string]any{
 			"authenticator": "basicauth/client",
 		},
-		"headers": map[string]any{
-			"x-greptime-db-name": "${env:GREPTIME_DATABASE}",
-		},
+		"headers": getGreptimeDBOTLPHTTPExporterHeaders(observers),
 		"tls": map[string]any{
 			"insecure": true,
 		},
 	}
+}
+
+func getGreptimeDBOTLPHTTPExporterHeaders(observers []mdaiv1.Observer) map[string]any {
+	return map[string]any{
+		"x-greptime-db-name":                            "${env:GREPTIME_DATABASE}",
+		"x-greptime-otlp-metric-promote-resource-attrs": strings.Join(greptimeDBPromotedResourceAttributes(observers), ";"),
+	}
+}
+
+func greptimeDBPromotedResourceAttributes(observers []mdaiv1.Observer) []string {
+	seenAttributes := make(map[string]struct{})
+	attributes := make([]string, 0)
+
+	for _, obs := range observers {
+		for _, attribute := range obs.LabelResourceAttributes {
+			if _, ok := seenAttributes[attribute]; ok {
+				continue
+			}
+			seenAttributes[attribute] = struct{}{}
+			attributes = append(attributes, attribute)
+		}
+	}
+
+	return attributes
 }
 
 func getObserverFilterProcessorConfig(filter *mdaiv1.ObserverFilter) map[string]any {

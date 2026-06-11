@@ -175,12 +175,43 @@ func TestGetObserverCollectorConfig(t *testing.T) {
 				assert.Equal(t, "http://${env:GREPTIME_HOST}:4000/v1/otlp", exporter.MustString("endpoint"))
 				assert.Equal(t, "basicauth/client", exporter.MustMap("auth").MustString("authenticator"))
 				assert.Equal(t, "${env:GREPTIME_DATABASE}", exporter.MustMap("headers").MustString("x-greptime-db-name"))
+				assert.Equal(t, "service.name", exporter.MustMap("headers").MustString("x-greptime-otlp-metric-promote-resource-attrs"))
 				assert.True(t, exporter.MustMap("tls")["insecure"].(bool))
 
 				extension := config.MustMap("extensions").MustMap("basicauth/client").MustMap("client_auth")
 				assert.Equal(t, "${env:GREPTIME_USER}", extension.MustString("username"))
 				assert.Equal(t, "${env:GREPTIME_PASSWD}", extension.MustString("password"))
 				assert.Contains(t, config.MustMap("service").MustSlice("extensions"), "basicauth/client")
+			},
+		},
+		{
+			desc: "greptimedb observers promote selected resource attributes",
+			observers: []mdaiv1.Observer{
+				{
+					Name:                    "trace-observer",
+					TelemetryType:           lo.ToPtr("traces"),
+					LabelResourceAttributes: []string{"service.name", "team", "service.name"},
+					AggregationTemporality:  pmetric.AggregationTemporalityDelta,
+					MetricsBackend:          "greptimedb",
+				},
+				{
+					Name:                    "log-observer",
+					TelemetryType:           lo.ToPtr("logs"),
+					LabelResourceAttributes: []string{"region"},
+					AggregationTemporality:  pmetric.AggregationTemporalityDelta,
+					MetricsBackend:          "greptimedb",
+				},
+			},
+			check: func(t *testing.T, resultConfig string, err error) {
+				t.Helper()
+				require.NoError(t, err)
+
+				var config builder.ConfigBlock
+				require.NoError(t, yaml.Unmarshal([]byte(resultConfig), &config))
+
+				headers := config.MustMap("exporters").MustMap("otlphttp/greptimedb").MustMap("headers")
+				assert.Equal(t, "${env:GREPTIME_DATABASE}", headers.MustString("x-greptime-db-name"))
+				assert.Equal(t, "service.name;team;region", headers.MustString("x-greptime-otlp-metric-promote-resource-attrs"))
 			},
 		},
 	}
