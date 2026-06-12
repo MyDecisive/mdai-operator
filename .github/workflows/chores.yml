@@ -19,21 +19,28 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  helmchart-check:
-    name: Helm Chart Checks
+  version-bump-check:
+    name: Version Bump Check
     runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
     steps:
       - name: Clone the code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
+        with:
+          fetch-tags: true
 
-      - name: Check if Helm chart was updated
+      - name: Install yq
+        uses: mikefarah/yq@v4
+
+      - name: Check version was bumped
         run: |
-          if git diff --quiet HEAD -- deployment/; then
-            echo "✅ No changes in /deployment - helm chart is up to date."
-          else
-            echo "❌ Generated Helm chart is not synchronized with the latest commit. Run 'make helm-update' to update the chart."
+          LATEST_TAG=$(git describe --tags --abbrev=0 2>/dev/null | sed 's/^v//' || echo "0.0.0")
+          CHART_VERSION=$(yq '.version' deployment/Chart.yaml)
+          if [ "$CHART_VERSION" = "$LATEST_TAG" ]; then
+            echo "Version was not bumped (still $LATEST_TAG). Run 'make release NEW_VERSION=x.y.z' on your branch."
             exit 1
           fi
+          echo "Version bumped: $LATEST_TAG → $CHART_VERSION"
 
   lint-and-test:
     name: Lint & Test on Ubuntu
