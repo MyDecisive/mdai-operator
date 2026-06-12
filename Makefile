@@ -347,19 +347,12 @@ CHART_VERSION ?= $(VERSION)
 CHART_DIR := ./deployment
 CHART_NAME := mdai-operator
 CHART_PACKAGE := $(CHART_NAME)-$(CHART_VERSION).tgz
-CHART_REPO := git@github.com:MyDecisive/mdai-helm-charts.git
-BASE_BRANCH := gh-pages
-TARGET_BRANCH := $(CHART_NAME)-v$(CHART_VERSION)
-CLONE_DIR := $(shell mktemp -d /tmp/mdai-helm-charts.XXXXXX)
-REPO_DIR := $(shell pwd)
-
 .PHONY: helm
 helm:
 	@echo "Usage: make helm-<command>"
 	@echo "Available commands:"
 	@echo "  helm-update    Update the Helm chart (versions, images, etc)"
 	@echo "  helm-package   Package the Helm chart"
-	@echo "  helm-publish   Publish the Helm chart"
 
 .PHONY: helm-update
 helm-update: HELMIFY_ARGS="-optional-crds"
@@ -386,29 +379,6 @@ helm-package: helm-update
 	$(call vecho, "📦 Packaging Helm chart...")
 	@$(HELM) package -u --version $(CHART_VERSION) --app-version $(CHART_VERSION) $(CHART_DIR) > /dev/null
 
-.PHONY: helm-publish
-helm-publish: helm-package
-	$(call vecho,"🚀 Cloning $(CHART_REPO)...")
-	@rm -rf $(CLONE_DIR)
-	@git clone -q --branch $(BASE_BRANCH) $(CHART_REPO) $(CLONE_DIR)
-
-	$(call vecho,"🌿 Creating branch $(TARGET_BRANCH) from $(BASE_BRANCH)...")
-	@cd $(CLONE_DIR) && git checkout -q -b $(TARGET_BRANCH)
-
-	$(call vecho,"📤 Copying and indexing chart...")
-	@cd $(CLONE_DIR) && \
-		$(HELM) repo index $(REPO_DIR) --merge index.yaml && \
-		mv $(REPO_DIR)/$(CHART_PACKAGE) $(CLONE_DIR)/ && \
-		mv $(REPO_DIR)/index.yaml $(CLONE_DIR)/
-
-	$(call vecho,"🚀 Committing changes...")
-	@cd $(CLONE_DIR) && \
-		git add $(CHART_PACKAGE) index.yaml && \
-		git commit -q -m "chore: publish $(CHART_PACKAGE)" && \
-		git push -q origin $(TARGET_BRANCH) && \
-		rm -rf $(CLONE_DIR)
-
-	$(call vecho,"✅ Chart published")
 
 .PHONY: generate-clientset
 generate-clientset:
