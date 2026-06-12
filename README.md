@@ -117,24 +117,29 @@ make undeploy
 ```shell
 make helm-values-schema-json-plugin
 ```
-### Regenerate from the latest manifests:
-Update VERSION number in make file and run:
+
+### Regenerate from the latest manifests
+To regenerate the Helm chart artifacts from the current kustomize manifests without changing the version:
 ```shell
 make helm-update
 ```
-- update chart and app version in `deployment/Chart.yaml`
-- update image version in `deployment/values.yaml`
-- update `newTag` in `config/manager/kustomization.yaml`
-- update `README.md` in `deployment`
-- update `values.schema.json` in `deployment`
+
+### Release
+To prepare a release, run:
+```shell
+make release NEW_VERSION=x.y.z
+```
+This will bump the version in `deployment/Chart.yaml` and `config/manager/kustomization.yaml`, then regenerate all Helm chart artifacts. Follow the printed instructions to commit, tag and push.
 
 ### Package chart
 ```shell
 make helm-package
 ```
+
 ### Publish chart
+Pushing a version tag triggers CI to build and publish the chart:
 ```shell
-make helm-publish
+git tag vx.y.z && git push origin vx.y.z
 ```
 
 ## Project Distribution 

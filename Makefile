@@ -16,14 +16,14 @@ CONTAINER_TOOL ?= docker
 SHELL = /usr/bin/env bash -o pipefail
 .SHELLFLAGS = -ec
 
-# Update this version to match new release tag and run helm targets
-VERSION ?= 0.2.20
-GOTOOLCHAIN ?= go1.25.0
-GO := CGO_ENABLED=0 GOTOOLCHAIN=$(GOTOOLCHAIN) go 
+VERSION ?= $(shell git describe --tags --abbrev=0 2>/dev/null || echo "vdev")
+VERSION := $(patsubst v%,%,$(VERSION))
+GOTOOLCHAIN ?= go$(shell go list -m -f '{{.GoVersion}}')
+GO := CGO_ENABLED=0 GOTOOLCHAIN=$(GOTOOLCHAIN) go
 GO_TEST := $(GO) test -count=1
 
 # Image URL to use all building/pushing image targets
-IMG ?= ghcr.io/mydecisive/mdai-operator:${VERSION}
+IMG ?= ghcr.io/mydecisive/mdai-operator:$(if $(NEW_VERSION),$(NEW_VERSION),$(VERSION))
 
 CHART_PATH := deployment
 
@@ -68,16 +68,19 @@ fmt: ## Run go fmt against code.
 vet: ## Run go vet against code.
 	$(GO) vet ./...
 
+TEST_EXCLUDE ?= /e2e|/test/utils|/cmd|/pkg/generated
+TEST_PKGS = $$(go list ./... | grep -v -E "$(TEST_EXCLUDE)")
+KUBEBUILDER_ENV = KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(LOCALBIN) -p path)"
+
 .PHONY: test-coverage
 test-coverage: manifests generate fmt vet envtest ## Run tests and generate code coverage.
-	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(LOCALBIN) -p path)" $(GO_TEST) $$(go list ./... | grep -v -E "/e2e|/test/utils|cmd|pkg/generated") -coverprofile=coverage.txt 
-	@sed '/zz_generated.deepcopy.go/d' coverage.txt > coverage.tmp
-	@mv coverage.tmp coverage.txt
+	$(KUBEBUILDER_ENV) $(GO_TEST) $(TEST_PKGS) -coverprofile=coverage.out
+	@sed '/zz_generated.deepcopy.go/d' coverage.out > coverage.tmp
+	@mv coverage.tmp coverage.out
 
 .PHONY: test
-test: manifests generate fmt vet envtest ## Run tests and generate code coverage.
-	# Run Go tests and produce coverage report
-	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(LOCALBIN) -p path)" $(GO_TEST) $$(go list ./... | grep -v /e2e) -count=1 -coverprofile cover.txt
+test: manifests generate fmt vet envtest ## Run tests
+	$(KUBEBUILDER_ENV) $(GO_TEST) $(TEST_PKGS)
 
 .PHONY: test-e2e
 test-e2e: manifests generate fmt vet ## Run the e2e tests. Expected an isolated environment using Kind.
@@ -105,11 +108,11 @@ lint-config: golangci-lint ## Verify golangci-lint linter configuration
 
 .PHONY: fix
 fix:
-	go fix ./...
+	$(GO) fix ./...
 
 .PHONY: fix-diff
 fix-diff:
-	go fix -diff ./...
+	$(GO) fix -diff ./...
 
 .PHONY: tidy
 tidy:
@@ -120,8 +123,8 @@ vendor:
 	@$(GO) mod vendor
 
 .PHONY: tidy-check
-tidy-check: tidy
-	@git diff --quiet --exit-code go.mod go.sum || { echo >&2 "go.mod or go.sum is out of sync. Run 'make tidy'."; exit 1; }
+tidy-check:
+	@$(GO) mod tidy -diff || { echo >&2 "go.mod or go.sum is out of sync. Run 'make tidy'."; exit 1; }
 
 ##@ Build
 
@@ -131,23 +134,24 @@ build: manifests generate fmt vet ## Build manager binary.
 
 .PHONY: run
 run: manifests generate fmt vet ## Run a controller from your host.
-	go run ./cmd
+	$(GO) run ./cmd
 
 # buildx is the standard path for both local and multi-arch image builds.
 # Local builds are loaded into the Docker image store; multi-arch builds are pushed.
 BUILDX_BUILDER ?= mdai-operator-builder
 .PHONY: docker-login 
 docker-login: 
-	aws ecr-public get-login-password | docker login --username AWS --password-stdin public.ecr.aws/decisiveai 
+	aws ecr-public get-login-password | $(CONTAINER_TOOL) login --username AWS --password-stdin public.ecr.aws/decisiveai 
 
 .PHONY: docker-buildx-ensure-builder
 docker-buildx-ensure-builder:
-	@$(CONTAINER_TOOL) buildx inspect >/dev/null 2>&1 || \
-		$(CONTAINER_TOOL) buildx create --name $(BUILDX_BUILDER) --driver docker-container --use
+	@$(CONTAINER_TOOL) buildx inspect $(BUILDX_BUILDER) >/dev/null 2>&1 || \
+		$(CONTAINER_TOOL) buildx create --name $(BUILDX_BUILDER) --driver docker-container
+	@$(CONTAINER_TOOL) buildx use $(BUILDX_BUILDER)
 
 .PHONY: docker-build
 docker-build: docker-buildx-ensure-builder ## Build docker image with the manager.
-	$(CONTAINER_TOOL) buildx build --load --platform=$(PLATFORMS) --tag ${IMG} .
+	$(CONTAINER_TOOL) buildx build --load --platform=$(LOCAL_PLATFORM) --tag ${IMG} .
 
 .PHONY: docker-push
 docker-push: docker-buildx-ensure-builder ## Build and push docker image for the manager for cross-platform support.
@@ -159,6 +163,7 @@ docker-push: docker-buildx-ensure-builder ## Build and push docker image for the
 # - have enabled BuildKit. More info: https://docs.docker.com/develop/develop-images/build_enhancements/
 # - be able to push the image to your registry (i.e. if you do not set a valid value via IMG=<myregistry/image:<tag>> then the export will fail)
 # To adequately provide solutions that are compatible with multiple platforms, you should consider using this option.
+LOCAL_PLATFORM ?= linux/$(shell go env GOARCH)
 PLATFORMS ?= linux/arm64,linux/amd64
 .PHONY: docker-buildx
 docker-buildx: docker-push ## Backward-compatible alias for multi-arch push via buildx.
@@ -166,12 +171,11 @@ docker-buildx: docker-push ## Backward-compatible alias for multi-arch push via 
 .PHONY: build-installer
 build-installer: manifests generate kustomize ## Generate a consolidated YAML with CRDs and deployment.
 	mkdir -p dist
-	@if [ -d "config/crd" ]; then \
-		$(KUSTOMIZE) build config/crd > dist/install.yaml; \
-	fi
-	echo "---" >> dist/install.yaml  # Add a document separator before appending
-	cd config/manager && $(KUSTOMIZE) edit set image controller=${IMG}
-	$(KUSTOMIZE) build config/default > dist/install.yaml
+	@tmp=$$(mktemp -d); \
+	trap 'rm -rf "$$tmp"' EXIT; \
+	cp -r config "$$tmp/"; \
+	cd "$$tmp/config/manager" && $(KUSTOMIZE) edit set image "controller=${IMG}"; \
+	$(KUSTOMIZE) build "$$tmp/config/default" > dist/install.yaml
 
 ##@ Deployment
 
@@ -190,10 +194,10 @@ uninstall: manifests kustomize ## Uninstall CRDs from the K8s cluster specified 
 .PHONY: deploy
 deploy: manifests kustomize ## Deploy controller to the K8s cluster specified in ~/.kube/config.
 	@tmp=$$(mktemp -d); \
-	cp -r config $$tmp/; \
-	cd $$tmp/config/manager && $(KUSTOMIZE) edit set image controller=$(IMG); \
-	$(KUSTOMIZE) build $$tmp/config/default | $(KUBECTL) apply -f -; \
-	rm -rf $$tmp
+	trap 'rm -rf "$$tmp"' EXIT; \
+	cp -r config "$$tmp/"; \
+	cd "$$tmp/config/manager" && $(KUSTOMIZE) edit set image "controller=$(IMG)"; \
+	$(KUSTOMIZE) build "$$tmp/config/default" | $(KUBECTL) apply -f -
 	$(KUBECTL) -n mdai rollout status deployment/mdai-operator-controller-manager
 
 .PHONY: undeploy
@@ -316,42 +320,44 @@ local-deploy: tidy vendor generate manifests lint helm-update install
 	$(MAKE) docker-build IMG=$(IMG)
 	kind load docker-image $(IMG) --name mdai
 	$(MAKE) deploy IMG=$(IMG)
-	$(KUBECTL) rollout restart deployment mdai-operator-controller-manager -n mdai
 
 ##@ Release
 
-.PHONY: bump-version
-bump-version: yq ## Bump version in all files. Usage: make bump-version NEW_VERSION=x.y.z
-	@[ -n "$(NEW_VERSION)" ] || { echo "Error: NEW_VERSION is required. Usage: make bump-version NEW_VERSION=x.y.z"; exit 1; }
-	@echo "Bumping version $(VERSION) → $(NEW_VERSION)"
-	@perl -pi -e 's/^VERSION \?= .*/VERSION ?= $(NEW_VERSION)/' Makefile
-	@$(YQ) -i '(.images[] | select(.name == "controller")).newTag = "$(NEW_VERSION)"' config/manager/kustomization.yaml
-	@$(YQ) -i '.version = "$(NEW_VERSION)" | .appVersion = "$(NEW_VERSION)"' $(CHART_PATH)/Chart.yaml
-	@$(YQ) -i '.controllerManager.manager.image.tag = "$(NEW_VERSION)"' $(CHART_PATH)/values.yaml
-	@echo "Done. Run 'make helm-update' to regenerate Helm chart artifacts and docs."
+.PHONY: fetch-tags
+fetch-tags: ## Fetch all tags from remote.
+	@git fetch --tags --force
 
-LATEST_TAG := $(shell git describe --tags --abbrev=0 $(git rev-parse --abbrev-ref HEAD) | sed 's/^v//')
-CHART_VERSION ?= $(LATEST_TAG)
+.PHONY: release
+release: fetch-tags ## Prepare a release. Usage: make release NEW_VERSION=x.y.z
+	@[ -n "$(NEW_VERSION)" ] || { echo "Error: NEW_VERSION is required. Usage: make release NEW_VERSION=x.y.z"; exit 1; }
+	@$(MAKE) helm-update NEW_VERSION=$(NEW_VERSION)
+	@echo ""
+	@echo "Release v$(NEW_VERSION) prepared. Next steps:"
+	@echo "  1. Commit the changes and open a PR"
+	@echo "  2. After merge to main: git tag v$(NEW_VERSION) && git push origin v$(NEW_VERSION)"
+
+.PHONY: bump-version
+bump-version: yq ## Bump version in chart and kustomization. No-op if NEW_VERSION is unset.
+	@if [ -n "$(NEW_VERSION)" ]; then \
+		echo "Bumping version $(VERSION) → $(NEW_VERSION)"; \
+		$(YQ) -i '(.images[] | select(.name == "controller")).newTag = "$(NEW_VERSION)"' config/manager/kustomization.yaml; \
+		$(YQ) -i '.version = "$(NEW_VERSION)" | .appVersion = "$(NEW_VERSION)"' $(CHART_PATH)/Chart.yaml; \
+	fi
+
+CHART_VERSION ?= $(VERSION)
 CHART_DIR := ./deployment
 CHART_NAME := mdai-operator
 CHART_PACKAGE := $(CHART_NAME)-$(CHART_VERSION).tgz
-CHART_REPO := git@github.com:MyDecisive/mdai-helm-charts.git
-BASE_BRANCH := gh-pages
-TARGET_BRANCH := $(CHART_NAME)-v$(CHART_VERSION)
-CLONE_DIR := $(shell mktemp -d /tmp/mdai-helm-charts.XXXXXX)
-REPO_DIR := $(shell pwd)
-
 .PHONY: helm
 helm:
 	@echo "Usage: make helm-<command>"
 	@echo "Available commands:"
 	@echo "  helm-update    Update the Helm chart (versions, images, etc)"
 	@echo "  helm-package   Package the Helm chart"
-	@echo "  helm-publish   Publish the Helm chart"
 
 .PHONY: helm-update
 helm-update: HELMIFY_ARGS="-optional-crds"
-helm-update: manifests kustomize helmify helm-docs helm-values-schema-json-plugin yq
+helm-update: bump-version manifests kustomize helmify helm-docs helm-values-schema-json-plugin yq
 	$(call vecho,"🐳 Updating image to $(IMG)...")
 	@pushd config/manager > /dev/null && $(KUSTOMIZE) edit set image controller=$(IMG) && popd > /dev/null
 	$(call vecho,"🛠️ Kustomizing and Helmifying...")
@@ -362,10 +368,6 @@ helm-update: manifests kustomize helmify helm-docs helm-values-schema-json-plugi
 	@$(YQ) -i '.xdsService.enabled = true' $(CHART_PATH)/values.yaml
 	$(call vecho,"🛠️ Adding conditionals for cert manager...")
 	@$(CHART_PATH)/files/no_cert_manager_option.sh
-	$(call vecho,"📈 Updating Helm chart version to $(VERSION)...")
-	@$(YQ) -i '.version = "$(VERSION)"' $(CHART_PATH)/Chart.yaml
-	$(call vecho,"🧩 Updating Helm chart appVersion to $(VERSION)...")
-	@$(YQ) -i '.appVersion = "$(VERSION)"' $(CHART_PATH)/Chart.yaml
 	$(call vecho,"🧩 Removing hardcoded tag version...")
 	@$(YQ) -i 'del(.controllerManager.manager.image.tag)' $(CHART_PATH)/values.yaml
 	$(call vecho,"📝 Updating Helm chart docs...")
@@ -378,29 +380,6 @@ helm-package: helm-update
 	$(call vecho, "📦 Packaging Helm chart...")
 	@$(HELM) package -u --version $(CHART_VERSION) --app-version $(CHART_VERSION) $(CHART_DIR) > /dev/null
 
-.PHONY: helm-publish
-helm-publish: helm-package
-	$(call vecho,"🚀 Cloning $(CHART_REPO)...")
-	@rm -rf $(CLONE_DIR)
-	@git clone -q --branch $(BASE_BRANCH) $(CHART_REPO) $(CLONE_DIR)
-
-	$(call vecho,"🌿 Creating branch $(TARGET_BRANCH) from $(BASE_BRANCH)...")
-	@cd $(CLONE_DIR) && git checkout -q -b $(TARGET_BRANCH)
-
-	$(call vecho,"📤 Copying and indexing chart...")
-	@cd $(CLONE_DIR) && \
-		$(HELM) repo index $(REPO_DIR) --merge index.yaml && \
-		mv $(REPO_DIR)/$(CHART_PACKAGE) $(CLONE_DIR)/ && \
-		mv $(REPO_DIR)/index.yaml $(CLONE_DIR)/
-
-	$(call vecho,"🚀 Committing changes...")
-	@cd $(CLONE_DIR) && \
-		git add $(CHART_PACKAGE) index.yaml && \
-		git commit -q -m "chore: publish $(CHART_PACKAGE)" && \
-		git push -q origin $(TARGET_BRANCH) && \
-		rm -rf $(CLONE_DIR)
-
-	$(call vecho,"✅ Chart published")
 
 .PHONY: generate-clientset
 generate-clientset:

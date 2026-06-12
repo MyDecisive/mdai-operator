@@ -7,44 +7,57 @@ on:
       - '**/*.go'
       - 'go.mod'
       - 'go.sum'
+      - 'Makefile'
   pull_request:
     branches: [ "main" ]
     paths:
       - '**/*.go'
       - 'go.mod'
       - 'go.sum'
+      - 'Makefile'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
   cancel-in-progress: true
 
 jobs:
-  helmchart-check:
-    name: Helm Chart Checks
+  version-bump-check:
+    name: Version Bump Check
     runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
     steps:
       - name: Clone the code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
+        with:
+          fetch-tags: true
 
-      - name: Check if Helm chart was updated
+      - name: Install yq
+        uses: mikefarah/yq@v4
+
+      - name: Check version was bumped
         run: |
-          if git diff --quiet HEAD -- deployment/; then
-            echo "✅ No changes in /deployment - helm chart is up to date."
-          else
-            echo "❌ Generated Helm chart is not synchronized with the latest commit. Run 'make helm-update' to update the chart."
+          LATEST_TAG=$(git tag --sort=-version:refname | head -n1)
+          LATEST_TAG=${LATEST_TAG#v}
+          LATEST_TAG=${LATEST_TAG:-0.0.0}
+          CHART_VERSION=$(yq '.version' deployment/Chart.yaml)
+          if [ "$CHART_VERSION" = "$LATEST_TAG" ]; then
+            echo "Version was not bumped (still $LATEST_TAG). Run 'make release NEW_VERSION=x.y.z' on your branch."
             exit 1
           fi
+          echo "Version bumped: $LATEST_TAG → $CHART_VERSION"
 
   lint-and-test:
     name: Lint & Test on Ubuntu
     runs-on: ubuntu-latest
     steps:
       - name: Clone the code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
+        with:
+          fetch-tags: true
 
       - name: Setup Go
         id: setup-go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
           cache: false
@@ -69,7 +82,7 @@ jobs:
           make tidy-check
 
       - name: Run linter
-        uses: golangci/golangci-lint-action@v8
+        uses: golangci/golangci-lint-action@v9
         with:
           install-mode: "binary"
           version: v2.11.4
@@ -82,20 +95,35 @@ jobs:
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           verbose: true
+          files: ./coverage.out
 
   test-e2e:
     name: E2E tests on Ubuntu
     needs: [ lint-and-test ]
-    if: needs.lint-and-test.result == 'success'
     runs-on: ubuntu-latest
     steps:
       - name: Clone the code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
+        with:
+          fetch-tags: true
 
       - name: Setup Go
-        uses: actions/setup-go@v5
+        id: setup-go
+        uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
+          cache: false
+
+      - name: Cache Go mod and build cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: ${{ runner.os }}-go-${{ steps.setup-go.outputs.go-version }}-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-${{ steps.setup-go.outputs.go-version }}-
+            ${{ runner.os }}-go-
 
       - name: Set up kind
         uses: helm/kind-action@v1.12.0
