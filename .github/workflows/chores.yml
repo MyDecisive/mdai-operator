@@ -36,7 +36,9 @@ jobs:
 
       - name: Check version was bumped
         run: |
-          LATEST_TAG=$(git describe --tags --abbrev=0 2>/dev/null | sed 's/^v//' || echo "0.0.0")
+          LATEST_TAG=$(git tag --sort=-version:refname | head -n1)
+          LATEST_TAG=${LATEST_TAG#v}
+          LATEST_TAG=${LATEST_TAG:-0.0.0}
           CHART_VERSION=$(yq '.version' deployment/Chart.yaml)
           if [ "$CHART_VERSION" = "$LATEST_TAG" ]; then
             echo "Version was not bumped (still $LATEST_TAG). Run 'make release NEW_VERSION=x.y.z' on your branch."
