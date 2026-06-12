@@ -102,6 +102,7 @@ func TestGetObserverCollectorConfig(t *testing.T) {
 				assert.NotNil(t, pipelines.MustMap("metrics/observeroutput"))
 				assert.NotNil(t, pipelines.MustMap("logs/observer-in"))
 				assert.NotNil(t, pipelines.MustMap("logs/observer-out"))
+				assert.Equal(t, []any{"deltatocumulative"}, pipelines.MustMap("metrics/observeroutput").MustSlice("processors"))
 
 				grpcReceiverMaxMsgSize := config.MustMap("receivers").MustMap("otlp").MustMap("protocols").MustMap("grpc").MustFloat("max_recv_msg_size_mib")
 				assert.Equal(t, 123, int(grpcReceiverMaxMsgSize)) // yaml unmarshal converts ints to floats
@@ -125,13 +126,13 @@ func TestGetObserverCollectorConfig(t *testing.T) {
 				connectors := config.MustMap("connectors")
 				require.NotNil(t, connectors.MustMap("datavolume/observer-in"))
 				assert.Equal(t, []any{"mdai_service"}, connectors.MustMap("datavolume/observer-in").MustSlice("label_resource_attributes"))
-				assert.Equal(t, 2, int(connectors.MustMap("datavolume/observer-in").MustFloat("aggregation_temporality")))
+				assert.NotContains(t, connectors.MustMap("datavolume/observer-in"), "aggregation_temporality")
 				assert.Equal(t, "items_received_by_service_total", connectors.MustMap("datavolume/observer-in").MustString("count_metric_name"))
 				assert.Equal(t, "bytes_received_by_service_total", connectors.MustMap("datavolume/observer-in").MustString("bytes_metric_name"))
 
 				require.NotNil(t, connectors.MustMap("datavolume/observer-out"))
 				assert.Equal(t, []any{"mdai_service"}, connectors.MustMap("datavolume/observer-out").MustSlice("label_resource_attributes"))
-				assert.Equal(t, 2, int(connectors.MustMap("datavolume/observer-out").MustFloat("aggregation_temporality")))
+				assert.NotContains(t, connectors.MustMap("datavolume/observer-out"), "aggregation_temporality")
 				assert.Equal(t, "items_sent_by_service_total", connectors.MustMap("datavolume/observer-out").MustString("count_metric_name"))
 				assert.Equal(t, "bytes_sent_by_service_total", connectors.MustMap("datavolume/observer-out").MustString("bytes_metric_name"))
 			},
@@ -167,9 +168,10 @@ func TestGetObserverCollectorConfig(t *testing.T) {
 				greptimePipeline := pipelines.MustMap("metrics/observeroutput/greptimedb")
 				assert.Equal(t, []any{"datavolume/trace-observer"}, greptimePipeline.MustSlice("receivers"))
 				assert.Equal(t, []any{"otlphttp/greptimedb"}, greptimePipeline.MustSlice("exporters"))
+				assert.NotContains(t, greptimePipeline, "processors")
 
 				connectors := config.MustMap("connectors")
-				assert.Equal(t, 1, int(connectors.MustMap("datavolume/trace-observer").MustFloat("aggregation_temporality")))
+				assert.NotContains(t, connectors.MustMap("datavolume/trace-observer"), "aggregation_temporality")
 
 				exporter := config.MustMap("exporters").MustMap("otlphttp/greptimedb")
 				assert.Equal(t, "http://${env:GREPTIME_HOST}:4000/v1/otlp", exporter.MustString("endpoint"))
@@ -212,6 +214,62 @@ func TestGetObserverCollectorConfig(t *testing.T) {
 				headers := config.MustMap("exporters").MustMap("otlphttp/greptimedb").MustMap("headers")
 				assert.Equal(t, "${env:GREPTIME_DATABASE}", headers.MustString("x-greptime-db-name"))
 				assert.Equal(t, "service.name;team;region", headers.MustString("x-greptime-otlp-metric-promote-resource-attrs"))
+			},
+		},
+		{
+			desc: "cumulative greptimedb observer includes deltatocumulative processor",
+			observers: []mdaiv1.Observer{
+				{
+					Name:                    "watcher4",
+					TelemetryType:           lo.ToPtr("logs"),
+					LabelResourceAttributes: []string{"service.name", "team", "region"},
+					AggregationTemporality:  pmetric.AggregationTemporalityCumulative,
+					MetricsBackend:          "greptimedb",
+					CountMetricName:         lo.ToPtr("mdai_watcher_four_count_total"),
+					BytesMetricName:         lo.ToPtr("mdai_watcher_four_bytes_total"),
+					Filter: &mdaiv1.ObserverFilter{
+						ErrorMode: lo.ToPtr("ignore"),
+						Logs: &mdaiv1.ObserverLogsFilter{
+							LogRecord: []string{`attributes["log_level"] == "INFO"`},
+						},
+					},
+				},
+			},
+			check: func(t *testing.T, resultConfig string, err error) {
+				t.Helper()
+				require.NoError(t, err)
+
+				var config builder.ConfigBlock
+				require.NoError(t, yaml.Unmarshal([]byte(resultConfig), &config))
+
+				pipeline := config.MustMap("service").MustMap("pipelines").MustMap("metrics/observeroutput/greptimedb")
+				assert.Equal(t, []any{"datavolume/watcher4"}, pipeline.MustSlice("receivers"))
+				assert.Equal(t, []any{"deltatocumulative"}, pipeline.MustSlice("processors"))
+				assert.Equal(t, []any{"otlphttp/greptimedb"}, pipeline.MustSlice("exporters"))
+			},
+		},
+		{
+			desc: "delta prometheus observer omits deltatocumulative processor",
+			observers: []mdaiv1.Observer{
+				{
+					Name:                    "delta-observer",
+					TelemetryType:           lo.ToPtr("logs"),
+					LabelResourceAttributes: []string{"service.name"},
+					AggregationTemporality:  pmetric.AggregationTemporalityDelta,
+					MetricsBackend:          "prometheus",
+				},
+			},
+			check: func(t *testing.T, resultConfig string, err error) {
+				t.Helper()
+				require.NoError(t, err)
+
+				var config builder.ConfigBlock
+				require.NoError(t, yaml.Unmarshal([]byte(resultConfig), &config))
+
+				pipeline := config.MustMap("service").MustMap("pipelines").MustMap("metrics/observeroutput")
+				assert.Equal(t, []any{"datavolume/delta-observer"}, pipeline.MustSlice("receivers"))
+				assert.Equal(t, []any{"prometheus"}, pipeline.MustSlice("exporters"))
+				assert.NotContains(t, pipeline, "processors")
 			},
 		},
 	}

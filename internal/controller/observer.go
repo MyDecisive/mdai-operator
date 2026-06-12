@@ -9,6 +9,7 @@ import (
 
 	mdaiv1 "github.com/mydecisive/mdai-operator/api/v1"
 	"github.com/mydecisive/mdai-operator/internal/builder"
+	"go.opentelemetry.io/collector/pdata/pmetric"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -319,6 +320,7 @@ func (c ObserverAdapter) getObserverCollectorConfig(observers []mdaiv1.Observer,
 	}
 
 	prometheusDataVolumeReceivers := make([]string, 0)
+	prometheusObservers := make([]mdaiv1.Observer, 0)
 	greptimeDataVolumeReceivers := make([]string, 0)
 	greptimeObservers := make([]mdaiv1.Observer, 0)
 
@@ -338,9 +340,6 @@ func (c ObserverAdapter) getObserverCollectorConfig(observers []mdaiv1.Observer,
 		dvKey := "datavolume/" + observerName
 		dvSpec := map[string]any{
 			"label_resource_attributes": obs.LabelResourceAttributes,
-		}
-		if obs.AggregationTemporality != 0 {
-			dvSpec["aggregation_temporality"] = obs.AggregationTemporality
 		}
 		if obs.CountMetricName != nil {
 			dvSpec["count_metric_name"] = *obs.CountMetricName
@@ -387,29 +386,33 @@ func (c ObserverAdapter) getObserverCollectorConfig(observers []mdaiv1.Observer,
 			greptimeObservers = append(greptimeObservers, obs)
 		case observerMetricsBackendPrometheus:
 			prometheusDataVolumeReceivers = append(prometheusDataVolumeReceivers, dvKey)
+			prometheusObservers = append(prometheusObservers, obs)
 		}
 	}
 
 	if len(prometheusDataVolumeReceivers) > 0 || len(greptimeDataVolumeReceivers) == 0 {
+		pipeline := map[string]any{
+			"receivers": prometheusDataVolumeReceivers,
+			"exporters": []string{"prometheus"},
+		}
+		if processors := getMetricsOutputPipelineProcessors(prometheusObservers); len(processors) > 0 {
+			pipeline["processors"] = processors
+		}
 		pipelines.
-			Set("metrics/observeroutput",
-				map[string]any{
-					"receivers":  prometheusDataVolumeReceivers,
-					"processors": []string{"deltatocumulative"},
-					"exporters":  []string{"prometheus"},
-				},
-			)
+			Set("metrics/observeroutput", pipeline)
 	}
 
 	if len(greptimeDataVolumeReceivers) > 0 {
 		configureGreptimeDBMetricsExporter(config, greptimeObservers)
+		pipeline := map[string]any{
+			"receivers": greptimeDataVolumeReceivers,
+			"exporters": []string{"otlphttp/greptimedb"},
+		}
+		if processors := getMetricsOutputPipelineProcessors(greptimeObservers); len(processors) > 0 {
+			pipeline["processors"] = processors
+		}
 		pipelines.
-			Set("metrics/observeroutput/greptimedb",
-				map[string]any{
-					"receivers": greptimeDataVolumeReceivers,
-					"exporters": []string{"otlphttp/greptimedb"},
-				},
-			)
+			Set("metrics/observeroutput/greptimedb", pipeline)
 	}
 
 	if ownLogsOtlpEndpoint := observerResource.OwnLogsOtlpEndpoint; ownLogsOtlpEndpoint != nil && *ownLogsOtlpEndpoint != "" {
@@ -450,6 +453,15 @@ func copySecretData(data map[string][]byte) map[string][]byte {
 		result[key] = append([]byte(nil), value...)
 	}
 	return result
+}
+
+func getMetricsOutputPipelineProcessors(observers []mdaiv1.Observer) []string {
+	for _, obs := range observers {
+		if obs.AggregationTemporality == pmetric.AggregationTemporalityCumulative {
+			return []string{"deltatocumulative"}
+		}
+	}
+	return nil
 }
 
 func configureGreptimeDBMetricsExporter(config builder.ConfigBlock, observers []mdaiv1.Observer) {
