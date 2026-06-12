@@ -16,7 +16,8 @@ CONTAINER_TOOL ?= docker
 SHELL = /usr/bin/env bash -o pipefail
 .SHELLFLAGS = -ec
 
-VERSION ?= $(shell git describe --tags --abbrev=0 2>/dev/null | sed 's/^v//' || echo "dev")
+VERSION ?= $(shell git describe --tags --abbrev=0 2>/dev/null || echo "vdev")
+VERSION := $(patsubst v%,%,$(VERSION))
 GOTOOLCHAIN ?= go$(shell go list -m -f '{{.GoVersion}}')
 GO := CGO_ENABLED=0 GOTOOLCHAIN=$(GOTOOLCHAIN) go
 GO_TEST := $(GO) test -count=1
