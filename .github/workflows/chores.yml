@@ -7,12 +7,14 @@ on:
       - '**/*.go'
       - 'go.mod'
       - 'go.sum'
+      - 'Makefile'
   pull_request:
     branches: [ "main" ]
     paths:
       - '**/*.go'
       - 'go.mod'
       - 'go.sum'
+      - 'Makefile'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
