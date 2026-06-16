@@ -9,7 +9,6 @@ import (
 
 	mdaiv1 "github.com/mydecisive/mdai-operator/api/v1"
 	"github.com/mydecisive/mdai-operator/internal/builder"
-	"go.opentelemetry.io/collector/pdata/pmetric"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -455,7 +454,7 @@ func copySecretData(data map[string][]byte) map[string][]byte {
 
 func getMetricsOutputPipelineProcessors(observers []mdaiv1.Observer) []string {
 	for _, obs := range observers {
-		if obs.AggregationTemporality == pmetric.AggregationTemporalityCumulative {
+		if obs.AggregationTemporality == mdaiv1.AggregationTemporalityCumulative {
 			return []string{"deltatocumulative"}
 		}
 	}

@@ -11,7 +11,7 @@ spec:
     - name: service-bytes-watcher
       telemetry_type: logs
       metrics_backend: prometheus
-      aggregation_temporality: 2
+      aggregation_temporality: cumulative
       labelResourceAttributes:
       - service.name
       - team

@@ -1,14 +1,21 @@
 package v1
 
 import (
-	"go.opentelemetry.io/collector/pdata/pmetric"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
+// AggregationTemporality controls how a metric's data points are reported over time.
+type AggregationTemporality string
+
+const (
+	AggregationTemporalityDelta      AggregationTemporality = "delta"
+	AggregationTemporalityCumulative AggregationTemporality = "cumulative"
+)
+
 // +kubebuilder:validation:XValidation:rule="self.telemetry_type == 'logs' && has(self.filter) ? !has(self.filter.traces) : true", message="When telemetry_type is 'logs', filter.traces must be omitted."
 // +kubebuilder:validation:XValidation:rule="self.telemetry_type == 'traces' && has(self.filter) ? !has(self.filter.logs) : true", message="When telemetry_type is 'traces', filter.logs must be omitted."
-// +kubebuilder:validation:XValidation:rule="self.metrics_backend == 'prometheus' ? self.aggregation_temporality == 2 : true", message="When metrics_backend is 'prometheus', aggregation_temporality must be 'cumulative'."
+// +kubebuilder:validation:XValidation:rule="self.metrics_backend == 'prometheus' ? self.aggregation_temporality == 'cumulative' : true", message="When metrics_backend is 'prometheus', aggregation_temporality must be 'cumulative'."
 type Observer struct {
 	// +kubebuilder:validation:Required
 	Name string `json:"name" yaml:"name"`
@@ -22,10 +29,8 @@ type Observer struct {
 	// +optional
 	BytesMetricName *string `json:"bytesMetricName,omitempty" yaml:"bytesMetricName,omitempty"`
 	// +kubebuilder:validation:Required
-	// +kubebuilder:validation:Type=integer
-	// +kubebuilder:validation:Format=int32
-	// +kubebuilder:validation:Enum=1;2
-	AggregationTemporality pmetric.AggregationTemporality `json:"aggregation_temporality" yaml:"aggregation_temporality"` //nolint:tagliatelle
+	// +kubebuilder:validation:Enum=delta;cumulative
+	AggregationTemporality AggregationTemporality `json:"aggregation_temporality" yaml:"aggregation_temporality"` //nolint:tagliatelle
 	// +kubebuilder:validation:Required
 	// +kubebuilder:validation:Enum=prometheus;greptimedb
 	MetricsBackend string `json:"metrics_backend" yaml:"metrics_backend"` //nolint:tagliatelle

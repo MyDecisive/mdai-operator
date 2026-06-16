@@ -161,14 +161,12 @@ spec:
                 items:
                   properties:
                     aggregation_temporality:
-                      description: |-
-                        AggregationTemporality defines how a metric aggregator reports aggregated values.
-                        It describes how those values relate to the time interval over which they are aggregated.
+                      description: AggregationTemporality controls how a metric's data
+                        points are reported over time.
                       enum:
-                      - 1
-                      - 2
-                      format: int32
-                      type: integer
+                      - delta
+                      - cumulative
+                      type: string
                     bytesMetricName:
                       type: string
                     countMetricName:
@@ -229,7 +227,7 @@ spec:
                   - message: When metrics_backend is 'prometheus', aggregation_temporality
                       must be 'cumulative'.
                     rule: 'self.metrics_backend == ''prometheus'' ? self.aggregation_temporality
-                      == 2 : true'
+                      == ''cumulative'' : true'
                 type: array
             type: object
           status:
