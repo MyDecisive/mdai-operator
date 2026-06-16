@@ -367,13 +367,11 @@ func (c ObserverAdapter) getObserverCollectorConfig(observers []mdaiv1.Observer,
 			"exporters":  []string{dvKey},
 		}
 
-		if obs.TelemetryType != nil {
-			switch *obs.TelemetryType {
-			case observerTelemetryTypeLogs:
-				pipelines.Set("logs/"+observerName, pipeline)
-			case observerTelemetryTypeTraces:
-				pipelines.Set("traces/"+observerName, pipeline)
-			}
+		switch obs.TelemetryType {
+		case observerTelemetryTypeLogs:
+			pipelines.Set("logs/"+observerName, pipeline)
+		case observerTelemetryTypeTraces:
+			pipelines.Set("traces/"+observerName, pipeline)
 		}
 
 		metricsBackend := obs.MetricsBackend

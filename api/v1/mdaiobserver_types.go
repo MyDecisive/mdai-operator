@@ -13,8 +13,8 @@ type Observer struct {
 	// +kubebuilder:validation:Required
 	Name string `json:"name" yaml:"name"`
 	// +kubebuilder:validation:Required
-	// +kubebuilder:validation:Enum=logs;metrics;traces
-	TelemetryType *string `json:"telemetry_type" yaml:"telemetry_type"` //nolint:tagliatelle
+	// +kubebuilder:validation:Enum=logs;traces
+	TelemetryType string `json:"telemetry_type" yaml:"telemetry_type"` //nolint:tagliatelle
 	// +kubebuilder:validation:Required
 	LabelResourceAttributes []string `json:"labelResourceAttributes" yaml:"labelResourceAttributes"`
 	// +optional

@@ -208,7 +208,6 @@ spec:
                     telemetry_type:
                       enum:
                       - logs
-                      - metrics
                       - traces
                       type: string
                   required:

@@ -55,7 +55,7 @@ func TestGetObserverCollectorConfig(t *testing.T) {
 			observers: []mdaiv1.Observer{
 				{
 					Name:                    "observer-in",
-					TelemetryType:           lo.ToPtr("logs"),
+					TelemetryType:           "logs",
 					LabelResourceAttributes: []string{"mdai_service"},
 					CountMetricName:         lo.ToPtr("items_received_by_service_total"),
 					BytesMetricName:         lo.ToPtr("bytes_received_by_service_total"),
@@ -70,7 +70,7 @@ func TestGetObserverCollectorConfig(t *testing.T) {
 				},
 				{
 					Name:                    "observer-out",
-					TelemetryType:           lo.ToPtr("logs"),
+					TelemetryType:           "logs",
 					LabelResourceAttributes: []string{"mdai_service"},
 					CountMetricName:         lo.ToPtr("items_sent_by_service_total"),
 					BytesMetricName:         lo.ToPtr("bytes_sent_by_service_total"),
@@ -142,7 +142,7 @@ func TestGetObserverCollectorConfig(t *testing.T) {
 			observers: []mdaiv1.Observer{
 				{
 					Name:                    "trace-observer",
-					TelemetryType:           lo.ToPtr("traces"),
+					TelemetryType:           "traces",
 					LabelResourceAttributes: []string{"service.name"},
 					AggregationTemporality:  pmetric.AggregationTemporalityDelta,
 					MetricsBackend:          "greptimedb",
@@ -191,14 +191,14 @@ func TestGetObserverCollectorConfig(t *testing.T) {
 			observers: []mdaiv1.Observer{
 				{
 					Name:                    "trace-observer",
-					TelemetryType:           lo.ToPtr("traces"),
+					TelemetryType:           "traces",
 					LabelResourceAttributes: []string{"service.name", "team", "service.name"},
 					AggregationTemporality:  pmetric.AggregationTemporalityDelta,
 					MetricsBackend:          "greptimedb",
 				},
 				{
 					Name:                    "log-observer",
-					TelemetryType:           lo.ToPtr("logs"),
+					TelemetryType:           "logs",
 					LabelResourceAttributes: []string{"region"},
 					AggregationTemporality:  pmetric.AggregationTemporalityDelta,
 					MetricsBackend:          "greptimedb",
@@ -221,7 +221,7 @@ func TestGetObserverCollectorConfig(t *testing.T) {
 			observers: []mdaiv1.Observer{
 				{
 					Name:                    "watcher4",
-					TelemetryType:           lo.ToPtr("logs"),
+					TelemetryType:           "logs",
 					LabelResourceAttributes: []string{"service.name", "team", "region"},
 					AggregationTemporality:  pmetric.AggregationTemporalityCumulative,
 					MetricsBackend:          "greptimedb",
@@ -253,7 +253,7 @@ func TestGetObserverCollectorConfig(t *testing.T) {
 			observers: []mdaiv1.Observer{
 				{
 					Name:                    "delta-observer",
-					TelemetryType:           lo.ToPtr("logs"),
+					TelemetryType:           "logs",
 					LabelResourceAttributes: []string{"service.name"},
 					AggregationTemporality:  pmetric.AggregationTemporalityDelta,
 					MetricsBackend:          "prometheus",

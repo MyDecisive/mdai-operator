@@ -206,7 +206,7 @@ func TestEnsureObserversSynchronized_WithGreptimeDBObserverCopiesSecret(t *testi
 
 	observer := hubv1.Observer{
 		Name:                    "observer-greptimedb",
-		TelemetryType:           ptr.To("traces"),
+		TelemetryType:           "traces",
 		LabelResourceAttributes: []string{"service.name"},
 		AggregationTemporality:  pmetric.AggregationTemporalityDelta,
 		MetricsBackend:          "greptimedb",
@@ -295,7 +295,7 @@ func TestEnsureObserversSynchronized_WithGreptimeDBObserverSkipsSecretCopyInOper
 			Observers: []hubv1.Observer{
 				{
 					Name:                    "observer-greptimedb",
-					TelemetryType:           ptr.To("traces"),
+					TelemetryType:           "traces",
 					LabelResourceAttributes: []string{"service.name"},
 					AggregationTemporality:  pmetric.AggregationTemporalityDelta,
 					MetricsBackend:          "greptimedb",
