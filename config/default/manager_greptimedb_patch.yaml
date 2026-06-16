@@ -1,0 +1,33 @@
+# This patch adds GreptimeDB secret env vars to the manager container.
+- op: add
+  path: /spec/template/spec/containers/0/env/-
+  value:
+    name: GREPTIME_HOST
+    valueFrom:
+      secretKeyRef:
+        name: greptimedb-users-auth
+        key: GREPTIME_HOST
+- op: add
+  path: /spec/template/spec/containers/0/env/-
+  value:
+    name: GREPTIME_PORT
+    valueFrom:
+      secretKeyRef:
+        name: greptimedb-users-auth
+        key: GREPTIME_PORT
+- op: add
+  path: /spec/template/spec/containers/0/env/-
+  value:
+    name: GREPTIME_USER
+    valueFrom:
+      secretKeyRef:
+        name: greptimedb-users-auth
+        key: GREPTIME_USER
+- op: add
+  path: /spec/template/spec/containers/0/env/-
+  value:
+    name: GREPTIME_PASSWD
+    valueFrom:
+      secretKeyRef:
+        name: greptimedb-users-auth
+        key: GREPTIME_PASSWD

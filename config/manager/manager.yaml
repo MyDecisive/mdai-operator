@@ -79,26 +79,6 @@ spec:
               secretKeyRef:
                 name: valkey-secret
                 key: VALKEY_PASSWORD
-          - name: GREPTIME_HOST
-            valueFrom:
-              secretKeyRef:
-                name: greptimedb-users-auth
-                key: GREPTIME_HOST
-          - name: GREPTIME_PORT
-            valueFrom:
-              secretKeyRef:
-                name: greptimedb-users-auth
-                key: GREPTIME_PORT
-          - name: GREPTIME_USER
-            valueFrom:
-              secretKeyRef:
-                name: greptimedb-users-auth
-                key: GREPTIME_USER
-          - name: GREPTIME_PASSWORD
-            valueFrom:
-              secretKeyRef:
-                name: greptimedb-users-auth
-                key: GREPTIME_PASSWORD
           - name: OTEL_EXPORTER_OTLP_ENDPOINT
             value: http://hub-monitor-mdai-collector-service.mdai.svc.cluster.local:4318
           - name: OTEL_SDK_DISABLED

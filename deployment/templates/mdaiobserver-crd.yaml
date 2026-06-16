@@ -160,6 +160,15 @@ spec:
               observers:
                 items:
                   properties:
+                    aggregation_temporality:
+                      description: |-
+                        AggregationTemporality defines how a metric aggregator reports aggregated values.
+                        It describes how those values relate to the time interval over which they are aggregated.
+                      enum:
+                      - 1
+                      - 2
+                      format: int32
+                      type: integer
                     bytesMetricName:
                       type: string
                     countMetricName:
@@ -177,17 +186,51 @@ spec:
                           required:
                           - log_record
                           type: object
+                        traces:
+                          properties:
+                            span:
+                              items:
+                                type: string
+                              type: array
+                          required:
+                          - span
+                          type: object
                       type: object
                     labelResourceAttributes:
                       items:
                         type: string
                       type: array
+                    metrics_backend:
+                      enum:
+                      - prometheus
+                      - greptimedb
+                      type: string
                     name:
                       type: string
+                    telemetry_type:
+                      enum:
+                      - logs
+                      - metrics
+                      - traces
+                      type: string
                   required:
+                  - aggregation_temporality
                   - labelResourceAttributes
+                  - metrics_backend
                   - name
+                  - telemetry_type
                   type: object
+                  x-kubernetes-validations:
+                  - message: When telemetry_type is 'logs', filter.traces must be omitted.
+                    rule: 'self.telemetry_type == ''logs'' && has(self.filter) ? !has(self.filter.traces)
+                      : true'
+                  - message: When telemetry_type is 'traces', filter.logs must be omitted.
+                    rule: 'self.telemetry_type == ''traces'' && has(self.filter) ? !has(self.filter.logs)
+                      : true'
+                  - message: When metrics_backend is 'prometheus', aggregation_temporality
+                      must be 'cumulative'.
+                    rule: 'self.metrics_backend == ''prometheus'' ? self.aggregation_temporality
+                      == 2 : true'
                 type: array
             type: object
           status:

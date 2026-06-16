@@ -39,6 +39,19 @@ spec:
             secretKeyRef:
               key: VALKEY_PASSWORD
               name: valkey-secret
+        - name: OTEL_EXPORTER_OTLP_ENDPOINT
+          value: {{ quote .Values.controllerManager.manager.env.otelExporterOtlpEndpoint
+            }}
+        - name: OTEL_SDK_DISABLED
+          value: {{ quote .Values.controllerManager.manager.env.otelSdkDisabled }}
+        - name: USE_CONSOLE_LOG_ENCODER
+          value: {{ quote .Values.controllerManager.manager.env.useConsoleLogEncoder }}
+        - name: RELEASE_NAME
+          valueFrom:
+            configMapKeyRef:
+              key: RELEASE_NAME
+              name: mdai-operator-release-info
+{{- if (index .Values "greptimedb-standalone").enabled }}
         - name: GREPTIME_HOST
           valueFrom:
             secretKeyRef:
@@ -54,23 +67,12 @@ spec:
             secretKeyRef:
               key: GREPTIME_USER
               name: greptimedb-users-auth
-        - name: GREPTIME_PASSWORD
+        - name: GREPTIME_PASSWD
           valueFrom:
             secretKeyRef:
-              key: GREPTIME_PASSWORD
+              key: GREPTIME_PASSWD
               name: greptimedb-users-auth
-        - name: OTEL_EXPORTER_OTLP_ENDPOINT
-          value: {{ quote .Values.controllerManager.manager.env.otelExporterOtlpEndpoint
-            }}
-        - name: OTEL_SDK_DISABLED
-          value: {{ quote .Values.controllerManager.manager.env.otelSdkDisabled }}
-        - name: USE_CONSOLE_LOG_ENCODER
-          value: {{ quote .Values.controllerManager.manager.env.useConsoleLogEncoder }}
-        - name: RELEASE_NAME
-          valueFrom:
-            configMapKeyRef:
-              key: RELEASE_NAME
-              name: mdai-operator-release-info
+{{- end }}
         - name: KUBERNETES_CLUSTER_DOMAIN
           value: {{ quote .Values.kubernetesClusterDomain }}
         image: {{ .Values.controllerManager.manager.image.repository }}:{{ .Values.controllerManager.manager.image.tag

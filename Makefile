@@ -362,6 +362,8 @@ helm-update: manifests kustomize helmify helm-docs helm-values-schema-json-plugi
 	@$(YQ) -i '.xdsService.enabled = true' $(CHART_PATH)/values.yaml
 	$(call vecho,"🛠️ Adding conditionals for cert manager...")
 	@$(CHART_PATH)/files/no_cert_manager_option.sh
+	$(call vecho,"🛠️ Wrapping GreptimeDB env variables...")
+	@$(CHART_PATH)/files/wrap_greptimedb_env_vars.sh
 	$(call vecho,"📈 Updating Helm chart version to $(VERSION)...")
 	@$(YQ) -i '.version = "$(VERSION)"' $(CHART_PATH)/Chart.yaml
 	$(call vecho,"🧩 Updating Helm chart appVersion to $(VERSION)...")
