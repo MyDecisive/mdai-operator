@@ -477,7 +477,7 @@ func configureGreptimeDBMetricsExporter(config builder.ConfigBlock, observers []
 
 func getGreptimeDBOTLPHTTPExporterConfig(observers []mdaiv1.Observer) map[string]any {
 	return map[string]any{
-		"endpoint": "http://${env:GREPTIME_HOST}:4000/v1/otlp",
+		"endpoint": "http://${env:GREPTIME_HOST}:${env:GREPTIME_HTTP_PORT}/v1/otlp",
 		"auth": map[string]any{
 			"authenticator": "basicauth/client",
 		},

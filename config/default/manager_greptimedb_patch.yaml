@@ -10,11 +10,11 @@
 - op: add
   path: /spec/template/spec/containers/0/env/-
   value:
-    name: GREPTIME_PORT
+    name: GREPTIME_HTTP_PORT
     valueFrom:
       secretKeyRef:
         name: greptimedb-users-auth
-        key: GREPTIME_PORT
+        key: GREPTIME_HTTP_PORT
 - op: add
   path: /spec/template/spec/containers/0/env/-
   value:

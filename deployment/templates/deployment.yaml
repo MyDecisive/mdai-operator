@@ -57,10 +57,10 @@ spec:
             secretKeyRef:
               key: GREPTIME_HOST
               name: greptimedb-users-auth
-        - name: GREPTIME_PORT
+        - name: GREPTIME_HTTP_PORT
           valueFrom:
             secretKeyRef:
-              key: GREPTIME_PORT
+              key: GREPTIME_HTTP_PORT
               name: greptimedb-users-auth
         - name: GREPTIME_USER
           valueFrom:
