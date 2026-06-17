@@ -173,11 +173,11 @@ func TestGetObserverCollectorConfig(t *testing.T) {
 				assert.NotContains(t, connectors.MustMap("datavolume/trace-observer"), "aggregation_temporality")
 
 				exporter := config.MustMap("exporters").MustMap("otlphttp/greptimedb")
-				assert.Equal(t, "http://${env:GREPTIME_HOST}:4000/v1/otlp", exporter.MustString("endpoint"))
+				assert.Equal(t, "http://${env:GREPTIME_HOST}:${env:GREPTIME_HTTP_PORT}/v1/otlp", exporter.MustString("endpoint"))
 				assert.Equal(t, "basicauth/client", exporter.MustMap("auth").MustString("authenticator"))
 				assert.Equal(t, "${env:GREPTIME_DATABASE}", exporter.MustMap("headers").MustString("x-greptime-db-name"))
 				assert.Equal(t, "service.name", exporter.MustMap("headers").MustString("x-greptime-otlp-metric-promote-resource-attrs"))
-				assert.True(t, exporter.MustMap("tls")["insecure"].(bool))
+				assert.True(t, exporter.MustMap("tls")["insecure"].(bool)) //nolint:forcetypeassert // test asserts on a known config shape
 
 				extension := config.MustMap("extensions").MustMap("basicauth/client").MustMap("client_auth")
 				assert.Equal(t, "${env:GREPTIME_USER}", extension.MustString("username"))

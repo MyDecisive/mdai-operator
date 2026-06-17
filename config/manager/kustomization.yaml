@@ -5,4 +5,4 @@ kind: Kustomization
 images:
 - name: controller
   newName: ghcr.io/mydecisive/mdai-operator
-  newTag: 0.2.17
+  newTag: 0.2.21-dev

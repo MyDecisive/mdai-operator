@@ -26,7 +26,7 @@ const (
 	observerTelemetryTypeTraces      = "traces"
 	observerMetricsBackendGreptimeDB = "greptimedb"
 	observerMetricsBackendPrometheus = "prometheus"
-	greptimeDBUsersAuthSecretName    = "greptimedb-users-auth"
+	greptimeDBUsersAuthSecretName    = "greptimedb-users-auth" //nolint:gosec // not a credential, just the name of the Secret resource holding GreptimeDB auth
 )
 
 //go:embed config/observer_base_collector_config.yaml
@@ -185,6 +185,7 @@ func (c ObserverAdapter) createOrUpdateObserverResourceConfigMap(ctx context.Con
 	return getConfigMapSHA(*desiredConfigMap)
 }
 
+//nolint:revive // greptimeDBEnabled toggles secret-volume wiring; splitting the func would duplicate the CreateOrUpdate body
 func (c ObserverAdapter) createOrUpdateObserverResourceDeployment(ctx context.Context, namespace string, hash string, observerResource mdaiv1.ObserverResource, greptimeDBEnabled bool) error {
 	name := c.getScopedObserverResourceName("")
 
@@ -371,6 +372,8 @@ func (c ObserverAdapter) getObserverCollectorConfig(observers []mdaiv1.Observer,
 			pipelines.Set("logs/"+observerName, pipeline)
 		case observerTelemetryTypeTraces:
 			pipelines.Set("traces/"+observerName, pipeline)
+		default:
+			// telemetry_type is constrained to logs/traces by the CRD enum; nothing to do otherwise.
 		}
 
 		metricsBackend := obs.MetricsBackend
@@ -384,6 +387,8 @@ func (c ObserverAdapter) getObserverCollectorConfig(observers []mdaiv1.Observer,
 		case observerMetricsBackendPrometheus:
 			prometheusDataVolumeReceivers = append(prometheusDataVolumeReceivers, dvKey)
 			prometheusObservers = append(prometheusObservers, obs)
+		default:
+			// metrics_backend is constrained to greptimedb/prometheus by the CRD enum; nothing to do otherwise.
 		}
 	}
 
@@ -463,7 +468,7 @@ func getMetricsOutputPipelineProcessors(observers []mdaiv1.Observer) []string {
 
 func configureGreptimeDBMetricsExporter(config builder.ConfigBlock, observers []mdaiv1.Observer) {
 	config.MustMap("extensions").Set("basicauth/client", map[string]any{
-		"client_auth": map[string]any{
+		"client_auth": map[string]any{ //nolint:gosec // values are collector env-var references, not hardcoded credentials
 			"username": "${env:GREPTIME_USER}",
 			"password": "${env:GREPTIME_PASSWD}",
 		},
@@ -477,7 +482,7 @@ func configureGreptimeDBMetricsExporter(config builder.ConfigBlock, observers []
 
 func getGreptimeDBOTLPHTTPExporterConfig(observers []mdaiv1.Observer) map[string]any {
 	return map[string]any{
-		"endpoint": "http://${env:GREPTIME_HOST}:${env:GREPTIME_HTTP_PORT}/v1/otlp",
+		"endpoint": "http://${env:GREPTIME_HOST}:${env:GREPTIME_HTTP_PORT}/v1/otlp", //nolint:revive // in-cluster GreptimeDB OTLP endpoint is plain http by design
 		"auth": map[string]any{
 			"authenticator": "basicauth/client",
 		},
