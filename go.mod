@@ -14,7 +14,7 @@ require (
 	github.com/goccy/go-yaml v1.18.0
 	github.com/google/go-cmp v0.7.0
 	github.com/mitchellh/mapstructure v1.5.0
-	github.com/mydecisive/mdai-data-core v0.3.1
+	github.com/mydecisive/mdai-data-core v0.4.2
 	github.com/onsi/ginkgo/v2 v2.27.2
 	github.com/onsi/gomega v1.38.2
 	github.com/open-telemetry/opentelemetry-operator v0.131.0

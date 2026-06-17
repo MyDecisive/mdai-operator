@@ -31,7 +31,7 @@ var telemetryValidationValidatorRulesDefaultYAML string
 var telemetryValidationValidatorFieldMappingDefaultYAML string
 
 const (
-	defaultValidatorImage              = "ghcr.io/mydecisive/mdai-fidelity-validator:0.1.0"
+	defaultValidatorImage              = "ghcr.io/mydecisive/mdai-fidelity-validator:0.1.2"
 	defaultValidatorPort         int32 = 18081
 	defaultValidatorReceiverPort int32 = 8126
 	defaultValidatorReplicas     int32 = 1

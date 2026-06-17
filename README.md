@@ -12,8 +12,7 @@ MDAI k8s operator:
 - Reads variables from ValKey.
 - Requires environment variables with the ValKey endpoint and password to be provided.
 - Supports two types of variables: set and string.
-- Converts to uppercase MDAI environment variables when injecting them into the OTEL collector if env variable name is not specified explicitly.
-  Injects environment variables into OTEL collectors through a ConfigMap with labels matching the hub name. The OTEL collector must be configured to use the ConfigMap. Operator is not responsible for removing this ConfigMap.
+- Injects environment variables into OTEL collectors through a ConfigMap with labels matching the hub name. The OTEL collector must be configured to use the ConfigMap. Operator is not responsible for removing this ConfigMap.
 - The ConfigMap name is the MDAI hub name plus `-variables`
 ```yaml
   envFrom:
@@ -22,7 +21,7 @@ MDAI k8s operator:
 ```
 - For now assuming hub names are unique across all namespaces
 - valkey key name has a structure: `variable/some_hub_name/some_variable_name`
-- Updates to variables are applied by triggering the collector’s restart
+- Updates to variables trigger a rolling restart of the collectors whose config references the changed variable. The restart filter detects both `${env:NAME}` and the scheme-less `${NAME}` form, with or without a `:-default` fallback (requires OTEL collector v0.96.0 or later). Configs the parser cannot resolve fall back to restarting the collector on any variable change: nested or indirect references — where a substitution forms part of a variable name (`${env:${PREFIX}_FOO}`) or sits in another reference's default value (`${env:NAME:-${env:FALLBACK}}`) — and unparseable collector YAML.
 - Supports the built-in ValKey storage type for variables 
 - Creates immutable meta variables that have references to other variables
 

@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/go-logr/logr"
+	vars "github.com/mydecisive/mdai-data-core/variables"
 	mdaiv1 "github.com/mydecisive/mdai-operator/api/v1"
 	"github.com/open-telemetry/opentelemetry-operator/apis/v1beta1"
 	prometheusv1 "github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring/v1"
@@ -21,6 +22,7 @@ import (
 	"go.uber.org/zap"
 	appsv1 "k8s.io/api/apps/v1"
 	v1core "k8s.io/api/core/v1"
+	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -45,12 +47,26 @@ func newTestMdaiCR() *mdaiv1.MdaiHub {
 }
 
 func newFakeClientForCR(cr *mdaiv1.MdaiHub, scheme *runtime.Scheme) client.Client {
+	// Endpoint uses an indirection pattern so extractCollectorEnvRefs returns wildcard;
+	// shared-fixture tests expect the collector to restart on any variable change.
 	collector := &v1beta1.OpenTelemetryCollector{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "collector1",
 			Namespace: "default",
 			Labels: map[string]string{
 				LabelMdaiHubName: "test-hub",
+			},
+		},
+		Spec: v1beta1.OpenTelemetryCollectorSpec{
+			Config: v1beta1.Config{
+				Receivers: v1beta1.AnyConfig{
+					Object: map[string]any{
+						"otlp": map[string]any{"endpoint": "${env:${PREFIX}_ENDPOINT}"},
+					},
+				},
+				Exporters: v1beta1.AnyConfig{
+					Object: map[string]any{"debug": map[string]any{}},
+				},
 			},
 		},
 	}
@@ -349,6 +365,8 @@ func TestBuildVariableSchemaEnvMap(t *testing.T) {
 	assert.False(t, hasManualRefs)
 	_, hasManualSerializeAs := manualPayload["serializeAs"]
 	assert.False(t, hasManualSerializeAs)
+	_, hasManualDefault := manualPayload["default"]
+	assert.False(t, hasManualDefault, "no default declared → field omitted")
 
 	computedPayload := map[string]any{}
 	require.NoError(t, json.Unmarshal([]byte(schemaMap["computed_var"]), &computedPayload))
@@ -358,6 +376,157 @@ func TestBuildVariableSchemaEnvMap(t *testing.T) {
 	metaPayload := variableSchemaConfigMapEntry{}
 	require.NoError(t, json.Unmarshal([]byte(schemaMap["meta_var"]), &metaPayload))
 	assert.Equal(t, []string{"first", "second"}, metaPayload.VariableRefs)
+}
+
+func TestHandleStoredVariable_AppliesDefault(t *testing.T) {
+	ctx := t.Context()
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	fakeValkey := mock.NewClient(ctrl)
+	dataAdapter := vars.NewValkeyAdapter(fakeValkey, zap.NewNop())
+
+	cr := newTestMdaiCR()
+	adapter := HubAdapter{mdaiCR: cr, logger: logr.Discard(), zapLogger: zap.NewNop()}
+
+	cases := []struct {
+		name        string
+		variable    mdaiv1.Variable
+		valkeyStub  func()
+		expectedKey string
+		expectedVal string
+		expectNoKey bool
+	}{
+		{
+			name: "int default applied on absent key",
+			variable: mdaiv1.Variable{
+				Key:         "sampling_rate",
+				Type:        mdaiv1.VariableTypeManual,
+				DataType:    mdaiv1.VariableDataTypeInt,
+				StorageType: mdaiv1.VariableSourceTypeBuiltInValkey,
+				Default:     &apiextensionsv1.JSON{Raw: []byte(`100`)},
+				SerializeAs: &[]mdaiv1.Serializer{{Name: "SAMPLING_RATE"}},
+			},
+			valkeyStub: func() {
+				fakeValkey.EXPECT().Do(ctx, fakeValkey.B().Get().Key(VariableKeyPrefix+cr.Name+"/sampling_rate").Build()).
+					Return(mock.Result(mock.ValkeyNil()))
+			},
+			expectedKey: "SAMPLING_RATE",
+			expectedVal: "100",
+		},
+		{
+			name: "set default applied on empty set",
+			variable: mdaiv1.Variable{
+				Key:         "allowed_services",
+				Type:        mdaiv1.VariableTypeManual,
+				DataType:    mdaiv1.VariableDataTypeSet,
+				StorageType: mdaiv1.VariableSourceTypeBuiltInValkey,
+				Default:     &apiextensionsv1.JSON{Raw: []byte(`["svc-a","svc-b"]`)},
+				SerializeAs: &[]mdaiv1.Serializer{
+					{Name: "ALLOWED_SERVICES", Transformers: []mdaiv1.VariableTransformer{
+						{Type: mdaiv1.TransformerTypeJoin, Join: &mdaiv1.JoinTransformer{Delimiter: ","}},
+					}},
+				},
+			},
+			valkeyStub: func() {
+				fakeValkey.EXPECT().Do(ctx, fakeValkey.B().Smembers().Key(VariableKeyPrefix+cr.Name+"/allowed_services").Build()).
+					Return(mock.Result(mock.ValkeyArray()))
+			},
+			expectedKey: "ALLOWED_SERVICES",
+			expectedVal: "svc-a,svc-b",
+		},
+		{
+			// Leading zero survives only if values are not reparsed as numbers ("007", not 7).
+			name: "map default rendered string-to-string without numeric reparse",
+			variable: mdaiv1.Variable{
+				Key:         "batch",
+				Type:        mdaiv1.VariableTypeManual,
+				DataType:    mdaiv1.VariableDataTypeMap,
+				StorageType: mdaiv1.VariableSourceTypeBuiltInValkey,
+				Default:     &apiextensionsv1.JSON{Raw: []byte(`{"size":"100","id":"007","timeout":"15s"}`)},
+				SerializeAs: &[]mdaiv1.Serializer{{Name: "BATCH"}},
+			},
+			valkeyStub: func() {
+				fakeValkey.EXPECT().Do(ctx, fakeValkey.B().Hgetall().Key(VariableKeyPrefix+cr.Name+"/batch").Build()).
+					Return(mock.Result(mock.ValkeyMap(map[string]valkey.ValkeyMessage{})))
+			},
+			expectedKey: "BATCH",
+			expectedVal: "id: \"007\"\nsize: \"100\"\ntimeout: 15s\n",
+		},
+		{
+			name: "scalar no default + absent key emits no env var",
+			variable: mdaiv1.Variable{
+				Key:         "unset_var",
+				Type:        mdaiv1.VariableTypeManual,
+				DataType:    mdaiv1.VariableDataTypeString,
+				StorageType: mdaiv1.VariableSourceTypeBuiltInValkey,
+				SerializeAs: &[]mdaiv1.Serializer{{Name: "UNSET_VAR"}},
+			},
+			valkeyStub: func() {
+				fakeValkey.EXPECT().Do(ctx, fakeValkey.B().Get().Key(VariableKeyPrefix+cr.Name+"/unset_var").Build()).
+					Return(mock.Result(mock.ValkeyNil()))
+			},
+			expectedKey: "UNSET_VAR",
+			expectNoKey: true,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			tc.valkeyStub()
+			envMap := map[string]string{}
+			require.NoError(t, adapter.handleStoredVariable(ctx, dataAdapter, tc.variable, envMap))
+			if tc.expectNoKey {
+				assert.NotContains(t, envMap, tc.expectedKey)
+				return
+			}
+			assert.Equal(t, tc.expectedVal, envMap[tc.expectedKey])
+		})
+	}
+}
+
+func TestHandleStoredVariable_StoredValueWinsOverDefault(t *testing.T) {
+	ctx := t.Context()
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	fakeValkey := mock.NewClient(ctrl)
+	dataAdapter := vars.NewValkeyAdapter(fakeValkey, zap.NewNop())
+
+	cr := newTestMdaiCR()
+	adapter := HubAdapter{mdaiCR: cr, logger: logr.Discard(), zapLogger: zap.NewNop()}
+
+	variable := mdaiv1.Variable{
+		Key:         "sampling_rate",
+		Type:        mdaiv1.VariableTypeManual,
+		DataType:    mdaiv1.VariableDataTypeInt,
+		StorageType: mdaiv1.VariableSourceTypeBuiltInValkey,
+		Default:     &apiextensionsv1.JSON{Raw: []byte(`100`)},
+		SerializeAs: &[]mdaiv1.Serializer{{Name: "SAMPLING_RATE"}},
+	}
+	fakeValkey.EXPECT().Do(ctx, fakeValkey.B().Get().Key(VariableKeyPrefix+cr.Name+"/sampling_rate").Build()).
+		Return(mock.Result(mock.ValkeyString("50")))
+
+	envMap := map[string]string{}
+	require.NoError(t, adapter.handleStoredVariable(ctx, dataAdapter, variable, envMap))
+	assert.Equal(t, "50", envMap["SAMPLING_RATE"])
+}
+
+func TestBuildVariableSchemaEnvMap_PropagatesDefault(t *testing.T) {
+	variables := []mdaiv1.Variable{
+		{
+			Key:         "with_default",
+			Type:        mdaiv1.VariableTypeManual,
+			DataType:    mdaiv1.VariableDataTypeInt,
+			StorageType: mdaiv1.VariableSourceTypeBuiltInValkey,
+			Default:     &apiextensionsv1.JSON{Raw: []byte(`100`)},
+		},
+	}
+
+	schemaMap, err := buildVariableSchemaEnvMap(variables)
+	require.NoError(t, err)
+
+	payload := map[string]json.RawMessage{}
+	require.NoError(t, json.Unmarshal([]byte(schemaMap["with_default"]), &payload))
+	assert.JSONEq(t, `100`, string(payload["default"]))
 }
 
 func TestEnsureVariableSynced(t *testing.T) {
@@ -1011,4 +1180,252 @@ func TestEnsureAutomationsSynchronized(t *testing.T) {
 
 	err = fakeClient.Get(ctx, types.NamespacedName{Name: configMapName, Namespace: "default"}, cm)
 	assert.True(t, apierrors.IsNotFound(err))
+}
+
+func TestDiffEnvMapKeys(t *testing.T) {
+	tests := []struct {
+		name    string
+		old     map[string]string
+		current map[string]string
+		want    []string
+	}{
+		{
+			name:    "identical",
+			old:     map[string]string{"A": "1", "B": "2"},
+			current: map[string]string{"A": "1", "B": "2"},
+			want:    nil,
+		},
+		{
+			name:    "added",
+			old:     map[string]string{"A": "1"},
+			current: map[string]string{"A": "1", "B": "2"},
+			want:    []string{"B"},
+		},
+		{
+			name:    "removed",
+			old:     map[string]string{"A": "1", "B": "2"},
+			current: map[string]string{"A": "1"},
+			want:    []string{"B"},
+		},
+		{
+			name:    "value changed",
+			old:     map[string]string{"A": "1"},
+			current: map[string]string{"A": "2"},
+			want:    []string{"A"},
+		},
+		{
+			name:    "old nil treats every current key as new",
+			old:     nil,
+			current: map[string]string{"A": "1", "B": "2"},
+			want:    []string{"A", "B"},
+		},
+		{
+			name:    "current nil treats every old key as removed",
+			old:     map[string]string{"A": "1"},
+			current: nil,
+			want:    []string{"A"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := diffEnvMapKeys(tt.old, tt.current)
+			gotKeys := make([]string, 0, len(got))
+			for k := range got {
+				gotKeys = append(gotKeys, k)
+			}
+			assert.ElementsMatch(t, tt.want, gotKeys)
+		})
+	}
+}
+
+func TestExtractCollectorEnvRefs(t *testing.T) {
+	collectorWithReceiverValue := func(value string) v1beta1.OpenTelemetryCollector {
+		return v1beta1.OpenTelemetryCollector{
+			Spec: v1beta1.OpenTelemetryCollectorSpec{
+				Config: v1beta1.Config{
+					Receivers: v1beta1.AnyConfig{
+						Object: map[string]any{
+							"otlp": map[string]any{"endpoint": value},
+						},
+					},
+					Exporters: v1beta1.AnyConfig{
+						Object: map[string]any{"debug": map[string]any{}},
+					},
+				},
+			},
+		}
+	}
+
+	tests := []struct {
+		name         string
+		collector    v1beta1.OpenTelemetryCollector
+		wantRefs     []string
+		wantWildcard bool
+	}{
+		{
+			name:         "no env refs",
+			collector:    collectorWithReceiverValue("0.0.0.0:4317"),
+			wantRefs:     nil,
+			wantWildcard: false,
+		},
+		{
+			name:         "simple ref",
+			collector:    collectorWithReceiverValue("${env:OTEL_ENDPOINT}"),
+			wantRefs:     []string{"OTEL_ENDPOINT"},
+			wantWildcard: false,
+		},
+		{
+			name:         "ref with default",
+			collector:    collectorWithReceiverValue("${env:OTEL_ENDPOINT:-0.0.0.0:4317}"),
+			wantRefs:     []string{"OTEL_ENDPOINT"},
+			wantWildcard: false,
+		},
+		{
+			name:         "indirection falls back to wildcard",
+			collector:    collectorWithReceiverValue("${env:${PREFIX}_ENDPOINT}"),
+			wantRefs:     nil,
+			wantWildcard: true,
+		},
+		{
+			name: "multiple refs across components",
+			collector: v1beta1.OpenTelemetryCollector{
+				Spec: v1beta1.OpenTelemetryCollectorSpec{
+					Config: v1beta1.Config{
+						Receivers: v1beta1.AnyConfig{
+							Object: map[string]any{
+								"otlp": map[string]any{"endpoint": "${env:OTEL_RECEIVER_ENDPOINT}"},
+							},
+						},
+						Exporters: v1beta1.AnyConfig{
+							Object: map[string]any{
+								"datadog": map[string]any{"api_key": "${env:DD_API_KEY:-x}"},
+							},
+						},
+					},
+				},
+			},
+			wantRefs:     []string{"OTEL_RECEIVER_ENDPOINT", "DD_API_KEY"},
+			wantWildcard: false,
+		},
+		{
+			name:         "bare ref without scheme",
+			collector:    collectorWithReceiverValue("${OTEL_ENDPOINT}"),
+			wantRefs:     []string{"OTEL_ENDPOINT"},
+			wantWildcard: false,
+		},
+		{
+			name:         "bare ref without scheme with default",
+			collector:    collectorWithReceiverValue("${OTEL_ENDPOINT:-0.0.0.0:4317}"),
+			wantRefs:     []string{"OTEL_ENDPOINT"},
+			wantWildcard: false,
+		},
+		{
+			name:         "non-env scheme is not a variable ref",
+			collector:    collectorWithReceiverValue("${file:/etc/otel/endpoint}"),
+			wantRefs:     nil,
+			wantWildcard: false,
+		},
+		{
+			name:         "scheme-less indirection falls back to wildcard",
+			collector:    collectorWithReceiverValue("${${PREFIX}}"),
+			wantRefs:     nil,
+			wantWildcard: true,
+		},
+		{
+			// envRef captures OTEL_ENDPOINT but would drop the nested FALLBACK ref.
+			name:         "nested ref in default value falls back to wildcard",
+			collector:    collectorWithReceiverValue("${env:OTEL_ENDPOINT:-${env:FALLBACK_ENDPOINT}}"),
+			wantRefs:     nil,
+			wantWildcard: true,
+		},
+		{
+			// Complete env ref inside a non-env provider: resolvable alone, but any nesting wildcards.
+			name:         "nested env ref inside non-env provider falls back to wildcard",
+			collector:    collectorWithReceiverValue("${file:${env:CONFIG_DIR}/endpoint}"),
+			wantRefs:     nil,
+			wantWildcard: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			gotRefs, gotWildcard := extractCollectorEnvRefs(tt.collector)
+			assert.Equal(t, tt.wantWildcard, gotWildcard)
+
+			gotKeys := make([]string, 0, len(gotRefs))
+			for k := range gotRefs {
+				gotKeys = append(gotKeys, k)
+			}
+			assert.ElementsMatch(t, tt.wantRefs, gotKeys)
+		})
+	}
+}
+
+func TestSyncComputedConfigMapsAndRestart_RestartsOnlyReferencingCollectors(t *testing.T) {
+	ctx := t.Context()
+	scheme := createTestScheme()
+	mdaiCR := newTestMdaiCR()
+
+	collectorWithRef := func(name, ref string) *v1beta1.OpenTelemetryCollector {
+		return &v1beta1.OpenTelemetryCollector{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      name,
+				Namespace: "default",
+				Labels:    map[string]string{LabelMdaiHubName: mdaiCR.Name},
+			},
+			Spec: v1beta1.OpenTelemetryCollectorSpec{
+				Config: v1beta1.Config{
+					Receivers: v1beta1.AnyConfig{
+						Object: map[string]any{"otlp": map[string]any{"endpoint": ref}},
+					},
+					Exporters: v1beta1.AnyConfig{
+						Object: map[string]any{"debug": map[string]any{}},
+					},
+				},
+			},
+		}
+	}
+	overlap := collectorWithRef("c-overlap", "${env:OVERLAP}")
+	other := collectorWithRef("c-other", "${env:OTHER}")
+
+	existingEnvCM := &v1core.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      mdaiCR.Name + envConfigMapNamePostfix,
+			Namespace: "default",
+		},
+		Data: map[string]string{"OVERLAP": "old", "OTHER": "x"},
+	}
+
+	fakeClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(mdaiCR, overlap, other, existingEnvCM).
+		Build()
+	recorder := record.NewFakeRecorder(10)
+
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	fakeValkey := mock.NewClient(ctrl)
+	// Exactly one collector should restart, so exactly one audit event should be emitted.
+	fakeValkey.EXPECT().Do(ctx, XaddMatcher{Type: "collector_restart"}).
+		Return(mock.Result(mock.ValkeyString(""))).Times(1)
+
+	adapter := NewHubAdapter(mdaiCR, logr.Discard(), zap.NewNop(), fakeClient, recorder, scheme, fakeValkey, time.Duration(30))
+
+	envMap := map[string]string{"OVERLAP": "new", "OTHER": "x"}
+	opResult, err := adapter.syncComputedConfigMapsAndRestart(ctx, envMap)
+	require.NoError(t, err)
+	assert.Equal(t, ContinueOperationResult(), opResult)
+
+	restartAnnotation := "kubectl.kubernetes.io/restartedAt"
+
+	got := &v1beta1.OpenTelemetryCollector{}
+	require.NoError(t, fakeClient.Get(ctx, types.NamespacedName{Name: "c-overlap", Namespace: "default"}, got))
+	if ann, ok := got.Annotations[restartAnnotation]; !ok || strings.TrimSpace(ann) == "" {
+		t.Errorf("expected c-overlap to be restarted, annotations: %v", got.Annotations)
+	}
+
+	got = &v1beta1.OpenTelemetryCollector{}
+	require.NoError(t, fakeClient.Get(ctx, types.NamespacedName{Name: "c-other", Namespace: "default"}, got))
+	if _, ok := got.Annotations[restartAnnotation]; ok {
+		t.Errorf("expected c-other NOT to be restarted, annotations: %v", got.Annotations)
+	}
 }

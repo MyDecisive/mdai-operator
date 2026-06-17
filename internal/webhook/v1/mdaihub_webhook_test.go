@@ -6,6 +6,7 @@ import (
 	. "github.com/onsi/gomega"
 	prometheusv1 "github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring/v1"
 	corev1 "k8s.io/api/core/v1"
+	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/apimachinery/pkg/util/validation/field"
@@ -284,6 +285,100 @@ var _ = Describe("MdaiHub Webhook", func() {
 			(obj.Spec.Variables)[7].VariableRefs = []string{"ref1", "ref2", "ref3"}
 			warnings, err := validator.ValidateCreate(ctx, obj)
 			Expect(err).To(MatchError(ContainSubstring(`MdaiHub.hub.mydecisive.ai "mdaihub-sample" is invalid: spec.variables[7].variableRefs: Invalid value: ["ref1","ref2","ref3"]: Meta HashSet must have exactly 2 elements`)))
+			Expect(warnings).To(BeEmpty())
+		})
+
+		It("Should admit creation when manual variables declare valid defaults per dataType", func() {
+			obj := createSampleMdaiHub()
+			obj.Spec.Variables[2].Type = mdaiv1.VariableTypeManual
+			obj.Spec.Variables[2].Default = &apiextensionsv1.JSON{Raw: []byte(`"hello"`)}
+			obj.Spec.Variables[3].Type = mdaiv1.VariableTypeManual
+			obj.Spec.Variables[3].Default = &apiextensionsv1.JSON{Raw: []byte(`true`)}
+			obj.Spec.Variables[4].Type = mdaiv1.VariableTypeManual
+			obj.Spec.Variables[4].Default = &apiextensionsv1.JSON{Raw: []byte(`100`)}
+			warnings, err := validator.ValidateCreate(ctx, obj)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(warnings).To(BeEmpty())
+		})
+
+		It("Should admit when default has nil Raw (collapses to no-default; apiserver prunes null leaves before admission)", func() {
+			obj := createSampleMdaiHub()
+			obj.Spec.Variables[2].Type = mdaiv1.VariableTypeManual
+			obj.Spec.Variables[2].Default = &apiextensionsv1.JSON{Raw: nil}
+			warnings, err := validator.ValidateCreate(ctx, obj)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(warnings).To(BeEmpty())
+		})
+
+		It("Should fail if default is declared for a meta variable", func() {
+			obj := createSampleMdaiHub()
+			obj.Spec.Variables[6].Default = &apiextensionsv1.JSON{Raw: []byte(`["a","b"]`)}
+			warnings, err := validator.ValidateCreate(ctx, obj)
+			Expect(err).To(MatchError(ContainSubstring(`spec.variables[6].default: Forbidden: defaults are only allowed for manual variables`)))
+			Expect(warnings).To(BeEmpty())
+		})
+
+		It("Should fail if default is declared for a computed variable", func() {
+			obj := createSampleMdaiHub()
+			obj.Spec.Variables[2].Type = mdaiv1.VariableTypeComputed
+			obj.Spec.Variables[2].Default = &apiextensionsv1.JSON{Raw: []byte(`"hello"`)}
+			warnings, err := validator.ValidateCreate(ctx, obj)
+			Expect(err).To(MatchError(ContainSubstring(`spec.variables[2].default: Forbidden: defaults are only allowed for manual variables`)))
+			Expect(warnings).To(BeEmpty())
+		})
+
+		It("Should fail if default shape mismatches dataType", func() {
+			obj := createSampleMdaiHub()
+			obj.Spec.Variables[4].Type = mdaiv1.VariableTypeManual
+			obj.Spec.Variables[4].Default = &apiextensionsv1.JSON{Raw: []byte(`1.5`)}
+			warnings, err := validator.ValidateCreate(ctx, obj)
+			Expect(err).To(MatchError(ContainSubstring(`spec.variables[4].default: Invalid value: "1.5"`)))
+			Expect(warnings).To(BeEmpty())
+		})
+
+		It("Should fail if float default is NaN/Inf", func() {
+			obj := createSampleMdaiHub()
+			obj.Spec.Variables[2].Type = mdaiv1.VariableTypeManual
+			obj.Spec.Variables[2].DataType = mdaiv1.VariableDataTypeFloat
+			obj.Spec.Variables[2].Default = &apiextensionsv1.JSON{Raw: []byte(`1e400`)}
+			warnings, err := validator.ValidateCreate(ctx, obj)
+			Expect(err).To(MatchError(ContainSubstring(`spec.variables[2].default`)))
+			Expect(warnings).To(BeEmpty())
+		})
+
+		It("Should admit when a manual set variable declares a valid array default", func() {
+			obj := createSampleMdaiHub()
+			obj.Spec.Variables[0].Type = mdaiv1.VariableTypeManual
+			obj.Spec.Variables[0].Default = &apiextensionsv1.JSON{Raw: []byte(`["a","b"]`)}
+			warnings, err := validator.ValidateCreate(ctx, obj)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(warnings).To(BeEmpty())
+		})
+
+		It("Should fail if a manual set default is not an array of strings", func() {
+			obj := createSampleMdaiHub()
+			obj.Spec.Variables[0].Type = mdaiv1.VariableTypeManual
+			obj.Spec.Variables[0].Default = &apiextensionsv1.JSON{Raw: []byte(`{"a":"b"}`)}
+			warnings, err := validator.ValidateCreate(ctx, obj)
+			Expect(err).To(MatchError(ContainSubstring(`spec.variables[0].default`)))
+			Expect(warnings).To(BeEmpty())
+		})
+
+		It("Should admit when a manual map variable declares a valid object default", func() {
+			obj := createSampleMdaiHub()
+			obj.Spec.Variables[5].Type = mdaiv1.VariableTypeManual
+			obj.Spec.Variables[5].Default = &apiextensionsv1.JSON{Raw: []byte(`{"k":"v"}`)}
+			warnings, err := validator.ValidateCreate(ctx, obj)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(warnings).To(BeEmpty())
+		})
+
+		It("Should fail if a manual map default has non-string values", func() {
+			obj := createSampleMdaiHub()
+			obj.Spec.Variables[5].Type = mdaiv1.VariableTypeManual
+			obj.Spec.Variables[5].Default = &apiextensionsv1.JSON{Raw: []byte(`{"k":1}`)}
+			warnings, err := validator.ValidateCreate(ctx, obj)
+			Expect(err).To(MatchError(ContainSubstring(`spec.variables[5].default`)))
 			Expect(warnings).To(BeEmpty())
 		})
 

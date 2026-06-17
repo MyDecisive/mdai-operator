@@ -10,14 +10,15 @@ signals:
     required_attributes:
       - env
       - service
-      - operation_name
-      - resource_name
+      - name: operation_name
+        compare: presence_only
+      - name: resource_name
+        compare: presence_only
       - trace_id
   logs:
     required_attributes:
       - name: ddsource
         compare: presence_only
-#      - ddtags
       - name: hostname
         compare: presence_only
       - service
