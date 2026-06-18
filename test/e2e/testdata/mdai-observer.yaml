@@ -9,21 +9,33 @@ metadata:
 spec:
   observers:
     - name: observer1
+      telemetry_type: logs
+      metrics_backend: prometheus
+      aggregation_temporality: cumulative
       labelResourceAttributes:
         - service.name
       countMetricName: mdai_observer_one_count_total
       bytesMetricName: mdai_observer_one_bytes_total
     - name: observer2
+      telemetry_type: logs
+      metrics_backend: prometheus
+      aggregation_temporality: cumulative
       labelResourceAttributes:
         - team
         - log_level
       countMetricName: mdai_observer_two_count_total
     - name: observer3
+      telemetry_type: logs
+      metrics_backend: prometheus
+      aggregation_temporality: cumulative
       labelResourceAttributes:
         - region
         - log_level
       bytesMetricName: mdai_observer_three_count_total
     - name: observer4
+      telemetry_type: logs
+      metrics_backend: greptimedb
+      aggregation_temporality: delta
       labelResourceAttributes:
         - service.name
         - team

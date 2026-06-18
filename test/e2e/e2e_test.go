@@ -96,6 +96,7 @@ var _ = Describe("Manager", Ordered, func() {
 			"--namespace", namespace,
 			"--from-literal=GREPTIME_HOST=greptimedb.default.svc.cluster.local",
 			"--from-literal=GREPTIME_HTTP_PORT=4000",
+			"--from-literal=GREPTIME_DATABASE=public",
 			"--from-literal=GREPTIME_USER=mdai",
 			"--from-literal=GREPTIME_PASSWD=abc")
 		_, err = utils.Run(cmd)

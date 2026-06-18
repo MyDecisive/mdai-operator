@@ -45,12 +45,25 @@ data:
                 - team
                 - region
     exporters:
+        otlphttp/greptimedb:
+            auth:
+                authenticator: basicauth/client
+            endpoint: http://${env:GREPTIME_HOST}:${env:GREPTIME_HTTP_PORT}/v1/otlp
+            headers:
+                x-greptime-db-name: ${env:GREPTIME_DATABASE}
+                x-greptime-otlp-metric-promote-resource-attrs: service.name;team;region
+            tls:
+                insecure: true
         prometheus:
             endpoint: 0.0.0.0:8899
             metric_expiration: 180m
             resource_to_telemetry_conversion:
                 enabled: true
     extensions:
+        basicauth/client:
+            client_auth:
+                password: ${env:GREPTIME_PASSWD}
+                username: ${env:GREPTIME_USER}
         cgroupruntime:
             gomaxprocs:
                 enabled: true
@@ -91,6 +104,7 @@ data:
     service:
         extensions:
             - cgroupruntime
+            - basicauth/client
         pipelines:
             logs/observer1:
                 exporters:
@@ -134,40 +148,11 @@ data:
                     - datavolume/observer1
                     - datavolume/observer2
                     - datavolume/observer3
+            metrics/observeroutput/greptimedb:
+                exporters:
+                    - otlphttp/greptimedb
+                receivers:
                     - datavolume/observer4
-            traces/observer1:
-                exporters:
-                    - datavolume/observer1
-                processors:
-                    - batch
-                    - groupbyattrs/observer1
-                receivers:
-                    - otlp
-            traces/observer2:
-                exporters:
-                    - datavolume/observer2
-                processors:
-                    - batch
-                    - groupbyattrs/observer2
-                receivers:
-                    - otlp
-            traces/observer3:
-                exporters:
-                    - datavolume/observer3
-                processors:
-                    - batch
-                    - groupbyattrs/observer3
-                receivers:
-                    - otlp
-            traces/observer4:
-                exporters:
-                    - datavolume/observer4
-                processors:
-                    - filter/observer4
-                    - batch
-                    - groupbyattrs/observer4
-                receivers:
-                    - otlp
         telemetry:
             logs:
                 processors:
