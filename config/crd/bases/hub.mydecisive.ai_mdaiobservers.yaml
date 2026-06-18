@@ -46,7 +46,7 @@ spec:
                     minimum: 1
                     type: integer
                   image:
-                    default: public.ecr.aws/decisiveai/observer-collector:0.1.6
+                    default: public.ecr.aws/decisiveai/observer-collector:0.1.7
                     type: string
                   ownLogsOtlpEndpoint:
                     type: string
