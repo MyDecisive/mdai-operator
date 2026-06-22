@@ -248,6 +248,46 @@ func TestGetObserverCollectorConfig(t *testing.T) {
 			},
 		},
 		{
+			desc: "mixed-temporality greptimedb observers split into per-temporality pipelines",
+			observers: []mdaiv1.Observer{
+				{
+					Name:                    "delta-observer",
+					TelemetryType:           "logs",
+					LabelResourceAttributes: []string{"service.name"},
+					AggregationTemporality:  mdaiv1.AggregationTemporalityDelta,
+					MetricsBackend:          "greptimedb",
+				},
+				{
+					Name:                    "cumulative-observer",
+					TelemetryType:           "logs",
+					LabelResourceAttributes: []string{"service.name"},
+					AggregationTemporality:  mdaiv1.AggregationTemporalityCumulative,
+					MetricsBackend:          "greptimedb",
+				},
+			},
+			check: func(t *testing.T, resultConfig string, err error) {
+				t.Helper()
+				require.NoError(t, err)
+
+				var config builder.ConfigBlock
+				require.NoError(t, yaml.Unmarshal([]byte(resultConfig), &config))
+
+				pipelines := config.MustMap("service").MustMap("pipelines")
+
+				// Delta observer: base pipeline, no deltatocumulative conversion.
+				deltaPipeline := pipelines.MustMap("metrics/observeroutput/greptimedb")
+				assert.Equal(t, []any{"datavolume/delta-observer"}, deltaPipeline.MustSlice("receivers"))
+				assert.Equal(t, []any{"otlphttp/greptimedb"}, deltaPipeline.MustSlice("exporters"))
+				assert.NotContains(t, deltaPipeline, "processors")
+
+				// Cumulative observer: separate pipeline that does convert to cumulative.
+				cumulativePipeline := pipelines.MustMap("metrics/observeroutput/greptimedb/cumulative")
+				assert.Equal(t, []any{"datavolume/cumulative-observer"}, cumulativePipeline.MustSlice("receivers"))
+				assert.Equal(t, []any{"deltatocumulative"}, cumulativePipeline.MustSlice("processors"))
+				assert.Equal(t, []any{"otlphttp/greptimedb"}, cumulativePipeline.MustSlice("exporters"))
+			},
+		},
+		{
 			desc: "delta prometheus observer omits deltatocumulative processor",
 			observers: []mdaiv1.Observer{
 				{

@@ -406,15 +406,44 @@ func (c ObserverAdapter) getObserverCollectorConfig(observers []mdaiv1.Observer,
 
 	if len(greptimeDataVolumeReceivers) > 0 {
 		configureGreptimeDBMetricsExporter(config, greptimeObservers)
-		pipeline := map[string]any{
-			"receivers": greptimeDataVolumeReceivers,
-			"exporters": []string{"otlphttp/greptimedb"},
+
+		// GreptimeDB observers may mix aggregation temporalities (unlike Prometheus,
+		// which the CRD constrains to cumulative). deltatocumulative must apply only to
+		// cumulative observers, so when both are present we emit a pipeline per
+		// temporality (sharing the exporter). A single-temporality set keeps one pipeline.
+		var greptimeDeltaReceivers, greptimeCumulativeReceivers []string
+		for i, obs := range greptimeObservers {
+			if obs.AggregationTemporality == mdaiv1.AggregationTemporalityCumulative {
+				greptimeCumulativeReceivers = append(greptimeCumulativeReceivers, greptimeDataVolumeReceivers[i])
+			} else {
+				greptimeDeltaReceivers = append(greptimeDeltaReceivers, greptimeDataVolumeReceivers[i])
+			}
 		}
-		if processors := getMetricsOutputPipelineProcessors(greptimeObservers); len(processors) > 0 {
-			pipeline["processors"] = processors
+
+		const greptimePipelineName = "metrics/observeroutput/greptimedb"
+		greptimeDeltaPipeline := func(receivers []string) map[string]any {
+			return map[string]any{
+				"receivers": receivers,
+				"exporters": []string{"otlphttp/greptimedb"},
+			}
 		}
-		pipelines.
-			Set("metrics/observeroutput/greptimedb", pipeline)
+		greptimeCumulativePipeline := func(receivers []string) map[string]any {
+			return map[string]any{
+				"receivers":  receivers,
+				"processors": []string{"deltatocumulative"},
+				"exporters":  []string{"otlphttp/greptimedb"},
+			}
+		}
+
+		switch {
+		case len(greptimeCumulativeReceivers) == 0:
+			pipelines.Set(greptimePipelineName, greptimeDeltaPipeline(greptimeDeltaReceivers))
+		case len(greptimeDeltaReceivers) == 0:
+			pipelines.Set(greptimePipelineName, greptimeCumulativePipeline(greptimeCumulativeReceivers))
+		default:
+			pipelines.Set(greptimePipelineName, greptimeDeltaPipeline(greptimeDeltaReceivers))
+			pipelines.Set(greptimePipelineName+"/cumulative", greptimeCumulativePipeline(greptimeCumulativeReceivers))
+		}
 	}
 
 	if ownLogsOtlpEndpoint := observerResource.OwnLogsOtlpEndpoint; ownLogsOtlpEndpoint != nil && *ownLogsOtlpEndpoint != "" {
