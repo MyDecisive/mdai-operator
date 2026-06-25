@@ -197,6 +197,8 @@ spec:
                         type: string
                       type: array
                     metrics_backend:
+                      description: MetricsBackend identifies the backend an observer's
+                        metrics are exported to.
                       enum:
                       - prometheus
                       - greptimedb
@@ -204,6 +206,8 @@ spec:
                     name:
                       type: string
                     telemetry_type:
+                      description: TelemetryType identifies the telemetry signal an
+                        observer ingests.
                       enum:
                       - logs
                       - traces

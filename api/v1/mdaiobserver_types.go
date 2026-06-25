@@ -13,6 +13,22 @@ const (
 	AggregationTemporalityCumulative AggregationTemporality = "cumulative"
 )
 
+// MetricsBackend identifies the backend an observer's metrics are exported to.
+type MetricsBackend string
+
+const (
+	MetricsBackendPrometheus MetricsBackend = "prometheus"
+	MetricsBackendGreptimeDB MetricsBackend = "greptimedb"
+)
+
+// TelemetryType identifies the telemetry signal an observer ingests.
+type TelemetryType string
+
+const (
+	TelemetryTypeLogs   TelemetryType = "logs"
+	TelemetryTypeTraces TelemetryType = "traces"
+)
+
 // +kubebuilder:validation:XValidation:rule="self.telemetry_type == 'logs' && has(self.filter) ? !has(self.filter.traces) : true", message="When telemetry_type is 'logs', filter.traces must be omitted."
 // +kubebuilder:validation:XValidation:rule="self.telemetry_type == 'traces' && has(self.filter) ? !has(self.filter.logs) : true", message="When telemetry_type is 'traces', filter.logs must be omitted."
 // +kubebuilder:validation:XValidation:rule="self.metrics_backend == 'prometheus' ? self.aggregation_temporality == 'cumulative' : true", message="When metrics_backend is 'prometheus', aggregation_temporality must be 'cumulative'."
@@ -21,7 +37,7 @@ type Observer struct {
 	Name string `json:"name" yaml:"name"`
 	// +kubebuilder:validation:Required
 	// +kubebuilder:validation:Enum=logs;traces
-	TelemetryType string `json:"telemetry_type" yaml:"telemetry_type"` //nolint:tagliatelle
+	TelemetryType TelemetryType `json:"telemetry_type" yaml:"telemetry_type"` //nolint:tagliatelle
 	// +kubebuilder:validation:Required
 	LabelResourceAttributes []string `json:"labelResourceAttributes" yaml:"labelResourceAttributes"`
 	// +optional
@@ -33,7 +49,7 @@ type Observer struct {
 	AggregationTemporality AggregationTemporality `json:"aggregation_temporality" yaml:"aggregation_temporality"` //nolint:tagliatelle
 	// +kubebuilder:validation:Required
 	// +kubebuilder:validation:Enum=prometheus;greptimedb
-	MetricsBackend string `json:"metrics_backend" yaml:"metrics_backend"` //nolint:tagliatelle
+	MetricsBackend MetricsBackend `json:"metrics_backend" yaml:"metrics_backend"` //nolint:tagliatelle
 	// +optional
 	Filter *ObserverFilter `json:"filter,omitempty" yaml:"filter,omitempty"`
 }

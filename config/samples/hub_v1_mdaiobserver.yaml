@@ -5,7 +5,7 @@ metadata:
     app.kubernetes.io/name: mdai-operator
     app.kubernetes.io/managed-by: kustomize
   name: sample
-  namespace: default
+  namespace: mdai
 spec:
   observers:
     - name: watcher1

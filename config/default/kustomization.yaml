@@ -59,10 +59,6 @@ patches:
   target:
     kind: Deployment
 
-- path: manager_greptimedb_patch.yaml
-  target:
-    kind: Deployment
-
 - path: certificate-privatekey-rotation-policy-patch.yaml
   target:
     kind: Certificate

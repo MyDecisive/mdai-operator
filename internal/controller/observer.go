@@ -19,14 +19,10 @@ import (
 )
 
 const (
-	observerDefaultImage             = "public.ecr.aws/decisiveai/observer-collector:0.1"
-	mdaiObserverHubComponent         = "mdai-observer"
-	mdaiObserverResourceBaseName     = "mdai-observer"
-	observerTelemetryTypeLogs        = "logs"
-	observerTelemetryTypeTraces      = "traces"
-	observerMetricsBackendGreptimeDB = "greptimedb"
-	observerMetricsBackendPrometheus = "prometheus"
-	greptimeDBUsersAuthSecretName    = "greptimedb-users-auth" //nolint:gosec // not a credential, just the name of the Secret resource holding GreptimeDB auth
+	observerDefaultImage          = "public.ecr.aws/decisiveai/observer-collector:0.1"
+	mdaiObserverHubComponent      = "mdai-observer"
+	mdaiObserverResourceBaseName  = "mdai-observer"
+	greptimeDBUsersAuthSecretName = "greptimedb-users-auth" //nolint:gosec // not a credential, just the name of the Secret resource holding GreptimeDB auth
 )
 
 //go:embed config/observer_base_collector_config.yaml
@@ -368,9 +364,9 @@ func (c ObserverAdapter) getObserverCollectorConfig(observers []mdaiv1.Observer,
 		}
 
 		switch obs.TelemetryType {
-		case observerTelemetryTypeLogs:
+		case mdaiv1.TelemetryTypeLogs:
 			pipelines.Set("logs/"+observerName, pipeline)
-		case observerTelemetryTypeTraces:
+		case mdaiv1.TelemetryTypeTraces:
 			pipelines.Set("traces/"+observerName, pipeline)
 		default:
 			// telemetry_type is constrained to logs/traces by the CRD enum; nothing to do otherwise.
@@ -378,13 +374,13 @@ func (c ObserverAdapter) getObserverCollectorConfig(observers []mdaiv1.Observer,
 
 		metricsBackend := obs.MetricsBackend
 		if metricsBackend == "" {
-			metricsBackend = observerMetricsBackendPrometheus
+			metricsBackend = mdaiv1.MetricsBackendPrometheus
 		}
 		switch metricsBackend {
-		case observerMetricsBackendGreptimeDB:
+		case mdaiv1.MetricsBackendGreptimeDB:
 			greptimeDataVolumeReceivers = append(greptimeDataVolumeReceivers, dvKey)
 			greptimeObservers = append(greptimeObservers, obs)
-		case observerMetricsBackendPrometheus:
+		case mdaiv1.MetricsBackendPrometheus:
 			prometheusDataVolumeReceivers = append(prometheusDataVolumeReceivers, dvKey)
 			prometheusObservers = append(prometheusObservers, obs)
 		default:
@@ -468,7 +464,7 @@ func (c ObserverAdapter) getObserverCollectorConfig(observers []mdaiv1.Observer,
 
 func hasGreptimeDBObservers(observers []mdaiv1.Observer) bool {
 	for _, obs := range observers {
-		if obs.MetricsBackend == observerMetricsBackendGreptimeDB {
+		if obs.MetricsBackend == mdaiv1.MetricsBackendGreptimeDB {
 			return true
 		}
 	}
@@ -564,7 +560,6 @@ func getObserverFilterProcessorConfig(filter *mdaiv1.ObserverFilter) map[string]
 			"span": filter.Traces.Span,
 		}
 	}
-	// TODO: Add metrics and trace filters
 
 	return filterMap
 }

@@ -55,28 +55,6 @@ spec:
           valueFrom:
             fieldRef:
               fieldPath: metadata.namespace
-{{- if (index .Values "greptimedb-standalone").enabled }}
-        - name: GREPTIME_HOST
-          valueFrom:
-            secretKeyRef:
-              key: GREPTIME_HOST
-              name: greptimedb-users-auth
-        - name: GREPTIME_HTTP_PORT
-          valueFrom:
-            secretKeyRef:
-              key: GREPTIME_HTTP_PORT
-              name: greptimedb-users-auth
-        - name: GREPTIME_USER
-          valueFrom:
-            secretKeyRef:
-              key: GREPTIME_USER
-              name: greptimedb-users-auth
-        - name: GREPTIME_PASSWD
-          valueFrom:
-            secretKeyRef:
-              key: GREPTIME_PASSWD
-              name: greptimedb-users-auth
-{{- end }}
         - name: KUBERNETES_CLUSTER_DOMAIN
           value: {{ quote .Values.kubernetesClusterDomain }}
         image: {{ .Values.controllerManager.manager.image.repository }}:{{ .Values.controllerManager.manager.image.tag
