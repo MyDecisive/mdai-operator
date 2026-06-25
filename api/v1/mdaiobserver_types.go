@@ -5,15 +5,51 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
+// AggregationTemporality controls how a metric's data points are reported over time.
+type AggregationTemporality string
+
+const (
+	AggregationTemporalityDelta      AggregationTemporality = "delta"
+	AggregationTemporalityCumulative AggregationTemporality = "cumulative"
+)
+
+// MetricsBackend identifies the backend an observer's metrics are exported to.
+type MetricsBackend string
+
+const (
+	MetricsBackendPrometheus MetricsBackend = "prometheus"
+	MetricsBackendGreptimeDB MetricsBackend = "greptimedb"
+)
+
+// TelemetryType identifies the telemetry signal an observer ingests.
+type TelemetryType string
+
+const (
+	TelemetryTypeLogs   TelemetryType = "logs"
+	TelemetryTypeTraces TelemetryType = "traces"
+)
+
+// +kubebuilder:validation:XValidation:rule="self.telemetry_type == 'logs' && has(self.filter) ? !has(self.filter.traces) : true", message="When telemetry_type is 'logs', filter.traces must be omitted."
+// +kubebuilder:validation:XValidation:rule="self.telemetry_type == 'traces' && has(self.filter) ? !has(self.filter.logs) : true", message="When telemetry_type is 'traces', filter.logs must be omitted."
+// +kubebuilder:validation:XValidation:rule="self.metrics_backend == 'prometheus' ? self.aggregation_temporality == 'cumulative' : true", message="When metrics_backend is 'prometheus', aggregation_temporality must be 'cumulative'."
 type Observer struct {
 	// +kubebuilder:validation:Required
 	Name string `json:"name" yaml:"name"`
+	// +kubebuilder:validation:Required
+	// +kubebuilder:validation:Enum=logs;traces
+	TelemetryType TelemetryType `json:"telemetry_type" yaml:"telemetry_type"` //nolint:tagliatelle
 	// +kubebuilder:validation:Required
 	LabelResourceAttributes []string `json:"labelResourceAttributes" yaml:"labelResourceAttributes"`
 	// +optional
 	CountMetricName *string `json:"countMetricName,omitempty" yaml:"countMetricName,omitempty"`
 	// +optional
 	BytesMetricName *string `json:"bytesMetricName,omitempty" yaml:"bytesMetricName,omitempty"`
+	// +kubebuilder:validation:Required
+	// +kubebuilder:validation:Enum=delta;cumulative
+	AggregationTemporality AggregationTemporality `json:"aggregation_temporality" yaml:"aggregation_temporality"` //nolint:tagliatelle
+	// +kubebuilder:validation:Required
+	// +kubebuilder:validation:Enum=prometheus;greptimedb
+	MetricsBackend MetricsBackend `json:"metrics_backend" yaml:"metrics_backend"` //nolint:tagliatelle
 	// +optional
 	Filter *ObserverFilter `json:"filter,omitempty" yaml:"filter,omitempty"`
 }
@@ -23,17 +59,24 @@ type ObserverLogsFilter struct {
 	LogRecord []string `json:"log_record" yaml:"log_record"` //nolint:tagliatelle
 }
 
+type ObserverTracesFilter struct {
+	// +kubebuilder:validation:Required
+	Span []string `json:"span" yaml:"span"` //nolint:tagliatelle
+}
+
 type ObserverFilter struct {
 	// +optional
 	ErrorMode *string `json:"error_mode" yaml:"error_mode"` //nolint:tagliatelle
 	// +optional
 	Logs *ObserverLogsFilter `json:"logs" yaml:"logs"`
+	// +optional
+	Traces *ObserverTracesFilter `json:"traces" yaml:"traces"`
 }
 
 // TODO: Add metrics and trace filters
 
 type ObserverResource struct {
-	// +kubebuilder:default="public.ecr.aws/decisiveai/observer-collector:0.1.6"
+	// +kubebuilder:default="public.ecr.aws/decisiveai/observer-collector:0.1.7"
 	// +optional
 	Image string `json:"image,omitempty"`
 	// +kubebuilder:default=1

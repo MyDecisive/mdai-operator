@@ -197,3 +197,131 @@ func TestEnsureObserversSynchronized_WithObservers(t *testing.T) {
 		}
 	}
 }
+
+func TestEnsureObserversSynchronized_WithGreptimeDBObserverCopiesSecret(t *testing.T) {
+	ctx := context.TODO()
+	scheme := createTestScheme()
+	t.Setenv(PodNamespaceEnv, "operator-system")
+
+	observer := hubv1.Observer{
+		Name:                    "observer-greptimedb",
+		TelemetryType:           "traces",
+		LabelResourceAttributes: []string{"service.name"},
+		AggregationTemporality:  hubv1.AggregationTemporalityDelta,
+		MetricsBackend:          "greptimedb",
+	}
+	observers := []hubv1.Observer{observer}
+
+	mdaiCR := &hubv1.MdaiObserver{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-observer",
+			Namespace: "default",
+		},
+		Spec: hubv1.MdaiObserverSpec{
+			Observers: observers,
+			ObserverResource: hubv1.ObserverResource{
+				Image: "public.ecr.aws/p3k6k6h3/observer-observer:latest",
+			},
+		},
+		Status: hubv1.MdaiObserverStatus{},
+	}
+	sourceSecret := &v1core.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      greptimeDBUsersAuthSecretName,
+			Namespace: "operator-system",
+		},
+		Type: v1core.SecretTypeOpaque,
+		Data: map[string][]byte{
+			"GREPTIME_HOST":     []byte("greptime.example.com"),
+			"GREPTIME_DATABASE": []byte("metrics"),
+			"GREPTIME_USER":     []byte("user"),
+			"GREPTIME_PASSWD":   []byte("password"),
+		},
+	}
+
+	fakeClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(mdaiCR, sourceSecret).
+		WithStatusSubresource(mdaiCR).
+		Build()
+	recorder := record.NewFakeRecorder(10)
+	adapter := NewObserverAdapter(mdaiCR, logr.Discard(), fakeClient, recorder, scheme)
+
+	opResult, err := adapter.ensureSynchronized(ctx)
+	if err != nil {
+		t.Fatalf("ensureSynchronized returned error: %v", err)
+	}
+	if opResult != ContinueOperationResult() {
+		t.Errorf("expected ContinueOperationResult, got: %v", opResult)
+	}
+
+	targetSecret := &v1core.Secret{}
+	if err := fakeClient.Get(ctx, types.NamespacedName{Name: greptimeDBUsersAuthSecretName, Namespace: mdaiCR.Namespace}, targetSecret); err != nil {
+		t.Fatalf("failed to get copied GreptimeDB Secret: %v", err)
+	}
+	if string(targetSecret.Data["GREPTIME_HOST"]) != "greptime.example.com" {
+		t.Errorf("expected copied GREPTIME_HOST, got %q", string(targetSecret.Data["GREPTIME_HOST"]))
+	}
+	if len(targetSecret.OwnerReferences) != 1 || targetSecret.OwnerReferences[0].Name != mdaiCR.Name {
+		t.Errorf("expected copied Secret to be owned by MdaiObserver %q, got: %+v", mdaiCR.Name, targetSecret.OwnerReferences)
+	}
+
+	deploymentName := mdaiCR.Name + "-" + mdaiObserverResourceBaseName
+	deploy := &appsv1.Deployment{}
+	if err := fakeClient.Get(ctx, types.NamespacedName{Name: deploymentName, Namespace: mdaiCR.Namespace}, deploy); err != nil {
+		t.Fatalf("failed to get Deployment %q: %v", deploymentName, err)
+	}
+	if len(deploy.Spec.Template.Spec.Containers) != 1 {
+		t.Fatalf("expected one container, got %d", len(deploy.Spec.Template.Spec.Containers))
+	}
+	envFrom := deploy.Spec.Template.Spec.Containers[0].EnvFrom
+	if len(envFrom) != 1 || envFrom[0].SecretRef == nil || envFrom[0].SecretRef.Name != greptimeDBUsersAuthSecretName {
+		t.Errorf("expected collector Deployment to import GreptimeDB Secret via envFrom, got: %+v", envFrom)
+	}
+}
+
+func TestEnsureObserversSynchronized_WithGreptimeDBObserverSkipsSecretCopyInOperatorNamespace(t *testing.T) {
+	ctx := context.TODO()
+	scheme := createTestScheme()
+	t.Setenv(PodNamespaceEnv, "default")
+
+	mdaiCR := &hubv1.MdaiObserver{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-observer",
+			Namespace: "default",
+		},
+		Spec: hubv1.MdaiObserverSpec{
+			Observers: []hubv1.Observer{
+				{
+					Name:                    "observer-greptimedb",
+					TelemetryType:           "traces",
+					LabelResourceAttributes: []string{"service.name"},
+					AggregationTemporality:  hubv1.AggregationTemporalityDelta,
+					MetricsBackend:          "greptimedb",
+				},
+			},
+			ObserverResource: hubv1.ObserverResource{
+				Image: "public.ecr.aws/p3k6k6h3/observer-observer:latest",
+			},
+		},
+		Status: hubv1.MdaiObserverStatus{},
+	}
+
+	fakeClient := observerFakeClient(scheme, mdaiCR)
+	recorder := record.NewFakeRecorder(10)
+	adapter := NewObserverAdapter(mdaiCR, logr.Discard(), fakeClient, recorder, scheme)
+
+	opResult, err := adapter.ensureSynchronized(ctx)
+	if err != nil {
+		t.Fatalf("ensureSynchronized returned error: %v", err)
+	}
+	if opResult != ContinueOperationResult() {
+		t.Errorf("expected ContinueOperationResult, got: %v", opResult)
+	}
+
+	secret := &v1core.Secret{}
+	err = fakeClient.Get(ctx, types.NamespacedName{Name: greptimeDBUsersAuthSecretName, Namespace: mdaiCR.Namespace}, secret)
+	if !errors.IsNotFound(err) {
+		t.Fatalf("expected GreptimeDB Secret not to be created in operator namespace, got error: %v", err)
+	}
+}

@@ -91,6 +91,17 @@ var _ = Describe("Manager", Ordered, func() {
 		_, err = utils.Run(cmd)
 		Expect(err).NotTo(HaveOccurred(), "Failed to create secret")
 
+		By("creating a greptimedb auth secret for the controller-manager")
+		cmd = exec.Command("kubectl", "create", "secret", "generic", "greptimedb-users-auth",
+			"--namespace", namespace,
+			"--from-literal=GREPTIME_HOST=greptimedb.default.svc.cluster.local",
+			"--from-literal=GREPTIME_HTTP_PORT=4000",
+			"--from-literal=GREPTIME_DATABASE=public",
+			"--from-literal=GREPTIME_USER=mdai",
+			"--from-literal=GREPTIME_PASSWD=abc")
+		_, err = utils.Run(cmd)
+		Expect(err).NotTo(HaveOccurred(), "Failed to create secret")
+
 		By("deploying the controller-manager")
 		cmd = exec.Command("make", "deploy", "IMG="+projectImage)
 		_, err = utils.Run(cmd)

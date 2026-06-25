@@ -4,21 +4,25 @@ import (
 	"context"
 	_ "embed"
 	"fmt"
+	"os"
+	"strings"
 
 	mdaiv1 "github.com/mydecisive/mdai-operator/api/v1"
 	"github.com/mydecisive/mdai-operator/internal/builder"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/yaml"
 )
 
 const (
-	observerDefaultImage         = "public.ecr.aws/decisiveai/observer-collector:0.1"
-	mdaiObserverHubComponent     = "mdai-observer"
-	mdaiObserverResourceBaseName = "mdai-observer"
+	observerDefaultImage          = "public.ecr.aws/decisiveai/observer-collector:0.1"
+	mdaiObserverHubComponent      = "mdai-observer"
+	mdaiObserverResourceBaseName  = "mdai-observer"
+	greptimeDBUsersAuthSecretName = "greptimedb-users-auth" //nolint:gosec // not a credential, just the name of the Secret resource holding GreptimeDB auth
 )
 
 //go:embed config/observer_base_collector_config.yaml
@@ -87,6 +91,54 @@ func (c ObserverAdapter) createOrUpdateObserverResourceService(ctx context.Conte
 	return nil
 }
 
+func (c ObserverAdapter) createOrUpdateObserverResourceGreptimeDBSecret(ctx context.Context, namespace string) error {
+	operatorNamespace := os.Getenv(PodNamespaceEnv)
+	if operatorNamespace == "" {
+		return fmt.Errorf("%s is not set", PodNamespaceEnv)
+	}
+	if namespace == operatorNamespace {
+		c.logger.Info("Skipping GreptimeDB secret copy because observer namespace matches operator namespace", "namespace", namespace, "secret", greptimeDBUsersAuthSecretName)
+		return nil
+	}
+
+	sourceSecret := &corev1.Secret{}
+	if err := c.client.Get(ctx, types.NamespacedName{Name: greptimeDBUsersAuthSecretName, Namespace: operatorNamespace}, sourceSecret); err != nil {
+		return fmt.Errorf("failed to get GreptimeDB auth secret: %w", err)
+	}
+
+	desiredSecret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      greptimeDBUsersAuthSecretName,
+			Namespace: namespace,
+		},
+	}
+
+	operationResult, err := controllerutil.CreateOrUpdate(ctx, c.client, desiredSecret, func() error {
+		if err := controllerutil.SetControllerReference(c.observerCR, desiredSecret, c.scheme); err != nil {
+			c.logger.Error(err, "Failed to set owner reference on Secret", "secret", desiredSecret.Name)
+			return err
+		}
+
+		if desiredSecret.Labels == nil {
+			desiredSecret.Labels = map[string]string{
+				"app":                 c.getScopedObserverResourceName(""),
+				LabelManagedByMdaiKey: LabelManagedByMdaiValue,
+				HubComponentLabel:     mdaiObserverHubComponent,
+				hubNameLabel:          c.observerCR.Name,
+			}
+		}
+		desiredSecret.Type = sourceSecret.Type
+		desiredSecret.Data = copySecretData(sourceSecret.Data)
+		return nil
+	})
+	if err != nil {
+		return fmt.Errorf("failed to create or update GreptimeDB auth secret: %w", err)
+	}
+
+	c.logger.Info("GreptimeDB auth Secret created or updated successfully", "secret", desiredSecret.Name, "namespace", namespace, "operation", operationResult)
+	return nil
+}
+
 func (c ObserverAdapter) createOrUpdateObserverResourceConfigMap(ctx context.Context, observerResource mdaiv1.ObserverResource, observers []mdaiv1.Observer) (string, error) {
 	namespace := c.observerCR.Namespace
 	configMapName := c.getScopedObserverResourceName("config")
@@ -129,7 +181,8 @@ func (c ObserverAdapter) createOrUpdateObserverResourceConfigMap(ctx context.Con
 	return getConfigMapSHA(*desiredConfigMap)
 }
 
-func (c ObserverAdapter) createOrUpdateObserverResourceDeployment(ctx context.Context, namespace string, hash string, observerResource mdaiv1.ObserverResource) error {
+//nolint:revive // greptimeDBEnabled toggles secret-volume wiring; splitting the func would duplicate the CreateOrUpdate body
+func (c ObserverAdapter) createOrUpdateObserverResourceDeployment(ctx context.Context, namespace string, hash string, observerResource mdaiv1.ObserverResource, greptimeDBEnabled bool) error {
 	name := c.getScopedObserverResourceName("")
 
 	deployment := &appsv1.Deployment{
@@ -207,6 +260,15 @@ func (c ObserverAdapter) createOrUpdateObserverResourceDeployment(ctx context.Co
 		if observerResource.Resources != nil {
 			containerSpec.Resources = *observerResource.Resources
 		}
+		if greptimeDBEnabled {
+			containerSpec.EnvFrom = append(containerSpec.EnvFrom, corev1.EnvFromSource{
+				SecretRef: &corev1.SecretEnvSource{
+					LocalObjectReference: corev1.LocalObjectReference{
+						Name: greptimeDBUsersAuthSecretName,
+					},
+				},
+			})
+		}
 
 		deployment.Spec.Template.Spec.Containers = []corev1.Container{
 			containerSpec,
@@ -253,7 +315,10 @@ func (c ObserverAdapter) getObserverCollectorConfig(observers []mdaiv1.Observer,
 			Set("max_recv_msg_size_mib", *grpcReceiverMaxMsgSize)
 	}
 
-	dataVolumeReceivers := make([]string, 0)
+	prometheusDataVolumeReceivers := make([]string, 0)
+	prometheusObservers := make([]mdaiv1.Observer, 0)
+	greptimeDataVolumeReceivers := make([]string, 0)
+	greptimeObservers := make([]mdaiv1.Observer, 0)
 
 	processors := config.MustMap("processors")
 	connectors := config.MustMap("connectors")
@@ -298,20 +363,84 @@ func (c ObserverAdapter) getObserverCollectorConfig(observers []mdaiv1.Observer,
 			"exporters":  []string{dvKey},
 		}
 
-		pipelines.Set("logs/"+observerName, pipeline)
-		pipelines.Set("traces/"+observerName, pipeline)
+		switch obs.TelemetryType {
+		case mdaiv1.TelemetryTypeLogs:
+			pipelines.Set("logs/"+observerName, pipeline)
+		case mdaiv1.TelemetryTypeTraces:
+			pipelines.Set("traces/"+observerName, pipeline)
+		default:
+			// telemetry_type is constrained to logs/traces by the CRD enum; nothing to do otherwise.
+		}
 
-		dataVolumeReceivers = append(dataVolumeReceivers, dvKey)
+		metricsBackend := obs.MetricsBackend
+		if metricsBackend == "" {
+			metricsBackend = mdaiv1.MetricsBackendPrometheus
+		}
+		switch metricsBackend {
+		case mdaiv1.MetricsBackendGreptimeDB:
+			greptimeDataVolumeReceivers = append(greptimeDataVolumeReceivers, dvKey)
+			greptimeObservers = append(greptimeObservers, obs)
+		case mdaiv1.MetricsBackendPrometheus:
+			prometheusDataVolumeReceivers = append(prometheusDataVolumeReceivers, dvKey)
+			prometheusObservers = append(prometheusObservers, obs)
+		default:
+			// metrics_backend is constrained to greptimedb/prometheus by the CRD enum; nothing to do otherwise.
+		}
 	}
 
-	pipelines.
-		Set("metrics/observeroutput",
-			map[string]any{
-				"receivers":  dataVolumeReceivers,
+	if len(prometheusDataVolumeReceivers) > 0 || len(greptimeDataVolumeReceivers) == 0 {
+		pipeline := map[string]any{
+			"receivers": prometheusDataVolumeReceivers,
+			"exporters": []string{"prometheus"},
+		}
+		if processors := getMetricsOutputPipelineProcessors(prometheusObservers); len(processors) > 0 {
+			pipeline["processors"] = processors
+		}
+		pipelines.
+			Set("metrics/observeroutput", pipeline)
+	}
+
+	if len(greptimeDataVolumeReceivers) > 0 {
+		configureGreptimeDBMetricsExporter(config, greptimeObservers)
+
+		// GreptimeDB observers may mix aggregation temporalities (unlike Prometheus,
+		// which the CRD constrains to cumulative). deltatocumulative must apply only to
+		// cumulative observers, so when both are present we emit a pipeline per
+		// temporality (sharing the exporter). A single-temporality set keeps one pipeline.
+		var greptimeDeltaReceivers, greptimeCumulativeReceivers []string
+		for i, obs := range greptimeObservers {
+			if obs.AggregationTemporality == mdaiv1.AggregationTemporalityCumulative {
+				greptimeCumulativeReceivers = append(greptimeCumulativeReceivers, greptimeDataVolumeReceivers[i])
+			} else {
+				greptimeDeltaReceivers = append(greptimeDeltaReceivers, greptimeDataVolumeReceivers[i])
+			}
+		}
+
+		const greptimePipelineName = "metrics/observeroutput/greptimedb"
+		greptimeDeltaPipeline := func(receivers []string) map[string]any {
+			return map[string]any{
+				"receivers": receivers,
+				"exporters": []string{"otlphttp/greptimedb"},
+			}
+		}
+		greptimeCumulativePipeline := func(receivers []string) map[string]any {
+			return map[string]any{
+				"receivers":  receivers,
 				"processors": []string{"deltatocumulative"},
-				"exporters":  []string{"prometheus"},
-			},
-		)
+				"exporters":  []string{"otlphttp/greptimedb"},
+			}
+		}
+
+		switch {
+		case len(greptimeCumulativeReceivers) == 0:
+			pipelines.Set(greptimePipelineName, greptimeDeltaPipeline(greptimeDeltaReceivers))
+		case len(greptimeDeltaReceivers) == 0:
+			pipelines.Set(greptimePipelineName, greptimeCumulativePipeline(greptimeCumulativeReceivers))
+		default:
+			pipelines.Set(greptimePipelineName, greptimeDeltaPipeline(greptimeDeltaReceivers))
+			pipelines.Set(greptimePipelineName+"/cumulative", greptimeCumulativePipeline(greptimeCumulativeReceivers))
+		}
+	}
 
 	if ownLogsOtlpEndpoint := observerResource.OwnLogsOtlpEndpoint; ownLogsOtlpEndpoint != nil && *ownLogsOtlpEndpoint != "" {
 		telemetry.Set("logs", map[string]any{
@@ -333,6 +462,86 @@ func (c ObserverAdapter) getObserverCollectorConfig(observers []mdaiv1.Observer,
 	return config.YAML()
 }
 
+func hasGreptimeDBObservers(observers []mdaiv1.Observer) bool {
+	for _, obs := range observers {
+		if obs.MetricsBackend == mdaiv1.MetricsBackendGreptimeDB {
+			return true
+		}
+	}
+	return false
+}
+
+func copySecretData(data map[string][]byte) map[string][]byte {
+	if data == nil {
+		return nil
+	}
+	result := make(map[string][]byte, len(data))
+	for key, value := range data {
+		result[key] = append([]byte(nil), value...)
+	}
+	return result
+}
+
+func getMetricsOutputPipelineProcessors(observers []mdaiv1.Observer) []string {
+	for _, obs := range observers {
+		if obs.AggregationTemporality == mdaiv1.AggregationTemporalityCumulative {
+			return []string{"deltatocumulative"}
+		}
+	}
+	return nil
+}
+
+func configureGreptimeDBMetricsExporter(config builder.ConfigBlock, observers []mdaiv1.Observer) {
+	config.MustMap("extensions").Set("basicauth/client", map[string]any{
+		"client_auth": map[string]any{ //nolint:gosec // values are collector env-var references, not hardcoded credentials
+			"username": "${env:GREPTIME_USER}",
+			"password": "${env:GREPTIME_PASSWD}",
+		},
+	})
+	config.MustMap("exporters").Set("otlphttp/greptimedb", getGreptimeDBOTLPHTTPExporterConfig(observers))
+
+	service := config.MustMap("service")
+	serviceExtensions := service.MustSlice("extensions")
+	service.Set("extensions", append(serviceExtensions, "basicauth/client"))
+}
+
+func getGreptimeDBOTLPHTTPExporterConfig(observers []mdaiv1.Observer) map[string]any {
+	return map[string]any{
+		"endpoint": "http://${env:GREPTIME_HOST}:${env:GREPTIME_HTTP_PORT}/v1/otlp", //nolint:revive // in-cluster GreptimeDB OTLP endpoint is plain http by design
+		"auth": map[string]any{
+			"authenticator": "basicauth/client",
+		},
+		"headers": getGreptimeDBOTLPHTTPExporterHeaders(observers),
+		"tls": map[string]any{
+			"insecure": true,
+		},
+	}
+}
+
+func getGreptimeDBOTLPHTTPExporterHeaders(observers []mdaiv1.Observer) map[string]any {
+	return map[string]any{
+		"x-greptime-db-name":                            "${env:GREPTIME_DATABASE}",
+		"x-greptime-otlp-metric-promote-resource-attrs": strings.Join(greptimeDBPromotedResourceAttributes(observers), ";"),
+	}
+}
+
+func greptimeDBPromotedResourceAttributes(observers []mdaiv1.Observer) []string {
+	seenAttributes := make(map[string]struct{})
+	attributes := make([]string, 0)
+
+	for _, obs := range observers {
+		for _, attribute := range obs.LabelResourceAttributes {
+			if _, ok := seenAttributes[attribute]; ok {
+				continue
+			}
+			seenAttributes[attribute] = struct{}{}
+			attributes = append(attributes, attribute)
+		}
+	}
+
+	return attributes
+}
+
 func getObserverFilterProcessorConfig(filter *mdaiv1.ObserverFilter) map[string]any {
 	filterMap := map[string]any{}
 
@@ -346,7 +555,11 @@ func getObserverFilterProcessorConfig(filter *mdaiv1.ObserverFilter) map[string]
 		}
 	}
 
-	// TODO: Add metrics and trace filters
+	if filter.Traces != nil && len(filter.Traces.Span) > 0 {
+		filterMap["traces"] = map[string]any{
+			"span": filter.Traces.Span,
+		}
+	}
 
 	return filterMap
 }

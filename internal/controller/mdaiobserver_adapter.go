@@ -164,12 +164,19 @@ func (c ObserverAdapter) ensureSynchronized(ctx context.Context) (OperationResul
 		return ContinueProcessing()
 	}
 
+	greptimeDBEnabled := hasGreptimeDBObservers(observers)
+	if greptimeDBEnabled {
+		if err := c.createOrUpdateObserverResourceGreptimeDBSecret(ctx, c.observerCR.Namespace); err != nil {
+			return RequeueWithError(err)
+		}
+	}
+
 	hash, err := c.createOrUpdateObserverResourceConfigMap(ctx, observerResource, observers)
 	if err != nil {
 		return RequeueWithError(err)
 	}
 
-	if err := c.createOrUpdateObserverResourceDeployment(ctx, c.observerCR.Namespace, hash, observerResource); err != nil {
+	if err := c.createOrUpdateObserverResourceDeployment(ctx, c.observerCR.Namespace, hash, observerResource, greptimeDBEnabled); err != nil {
 		if apierrors.ReasonForError(err) == metav1.StatusReasonConflict {
 			c.logger.Info("re-queuing due to resource conflict")
 			return Requeue()

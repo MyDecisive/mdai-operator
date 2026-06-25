@@ -28,6 +28,7 @@ type MdaiObserverReconciler struct {
 // +kubebuilder:rbac:groups=hub.mydecisive.ai,resources=mdaiobservers,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=hub.mydecisive.ai,resources=mdaiobservers/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=hub.mydecisive.ai,resources=mdaiobservers/finalizers,verbs=update
+// +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch;create;update;patch
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.

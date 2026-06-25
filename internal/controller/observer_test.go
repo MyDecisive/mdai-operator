@@ -54,9 +54,12 @@ func TestGetObserverCollectorConfig(t *testing.T) {
 			observers: []mdaiv1.Observer{
 				{
 					Name:                    "observer-in",
+					TelemetryType:           "logs",
 					LabelResourceAttributes: []string{"mdai_service"},
 					CountMetricName:         lo.ToPtr("items_received_by_service_total"),
 					BytesMetricName:         lo.ToPtr("bytes_received_by_service_total"),
+					AggregationTemporality:  mdaiv1.AggregationTemporalityCumulative,
+					MetricsBackend:          "prometheus",
 					Filter: &mdaiv1.ObserverFilter{
 						ErrorMode: lo.ToPtr("ignore"),
 						Logs: &mdaiv1.ObserverLogsFilter{
@@ -66,9 +69,12 @@ func TestGetObserverCollectorConfig(t *testing.T) {
 				},
 				{
 					Name:                    "observer-out",
+					TelemetryType:           "logs",
 					LabelResourceAttributes: []string{"mdai_service"},
 					CountMetricName:         lo.ToPtr("items_sent_by_service_total"),
 					BytesMetricName:         lo.ToPtr("bytes_sent_by_service_total"),
+					AggregationTemporality:  mdaiv1.AggregationTemporalityCumulative,
+					MetricsBackend:          "prometheus",
 					Filter: &mdaiv1.ObserverFilter{
 						ErrorMode: lo.ToPtr("ignore"),
 						Logs: &mdaiv1.ObserverLogsFilter{
@@ -89,14 +95,13 @@ func TestGetObserverCollectorConfig(t *testing.T) {
 				require.NoError(t, yaml.Unmarshal([]byte(resultConfig), &config))
 
 				serviceBlock := config.MustMap("service")
-				// pipelines: 1 metric, 2 logs, 2 traces
+				// pipelines: 1 metric, 2 logs
 				pipelines := serviceBlock.MustMap("pipelines")
-				require.Len(t, pipelines, 5)
+				require.Len(t, pipelines, 3)
 				assert.NotNil(t, pipelines.MustMap("metrics/observeroutput"))
 				assert.NotNil(t, pipelines.MustMap("logs/observer-in"))
 				assert.NotNil(t, pipelines.MustMap("logs/observer-out"))
-				assert.NotNil(t, pipelines.MustMap("traces/observer-in"))
-				assert.NotNil(t, pipelines.MustMap("traces/observer-out"))
+				assert.Equal(t, []any{"deltatocumulative"}, pipelines.MustMap("metrics/observeroutput").MustSlice("processors"))
 
 				grpcReceiverMaxMsgSize := config.MustMap("receivers").MustMap("otlp").MustMap("protocols").MustMap("grpc").MustFloat("max_recv_msg_size_mib")
 				assert.Equal(t, 123, int(grpcReceiverMaxMsgSize)) // yaml unmarshal converts ints to floats
@@ -120,13 +125,190 @@ func TestGetObserverCollectorConfig(t *testing.T) {
 				connectors := config.MustMap("connectors")
 				require.NotNil(t, connectors.MustMap("datavolume/observer-in"))
 				assert.Equal(t, []any{"mdai_service"}, connectors.MustMap("datavolume/observer-in").MustSlice("label_resource_attributes"))
+				assert.NotContains(t, connectors.MustMap("datavolume/observer-in"), "aggregation_temporality")
 				assert.Equal(t, "items_received_by_service_total", connectors.MustMap("datavolume/observer-in").MustString("count_metric_name"))
 				assert.Equal(t, "bytes_received_by_service_total", connectors.MustMap("datavolume/observer-in").MustString("bytes_metric_name"))
 
 				require.NotNil(t, connectors.MustMap("datavolume/observer-out"))
 				assert.Equal(t, []any{"mdai_service"}, connectors.MustMap("datavolume/observer-out").MustSlice("label_resource_attributes"))
+				assert.NotContains(t, connectors.MustMap("datavolume/observer-out"), "aggregation_temporality")
 				assert.Equal(t, "items_sent_by_service_total", connectors.MustMap("datavolume/observer-out").MustString("count_metric_name"))
 				assert.Equal(t, "bytes_sent_by_service_total", connectors.MustMap("datavolume/observer-out").MustString("bytes_metric_name"))
+			},
+		},
+		{
+			desc: "greptimedb observer uses otlphttp exporter and auth extension",
+			observers: []mdaiv1.Observer{
+				{
+					Name:                    "trace-observer",
+					TelemetryType:           "traces",
+					LabelResourceAttributes: []string{"service.name"},
+					AggregationTemporality:  mdaiv1.AggregationTemporalityDelta,
+					MetricsBackend:          "greptimedb",
+					Filter: &mdaiv1.ObserverFilter{
+						ErrorMode: lo.ToPtr("ignore"),
+						Traces: &mdaiv1.ObserverTracesFilter{
+							Span: []string{`attributes["http.status_code"] >= 500`},
+						},
+					},
+				},
+			},
+			check: func(t *testing.T, resultConfig string, err error) {
+				t.Helper()
+				require.NoError(t, err)
+
+				var config builder.ConfigBlock
+				require.NoError(t, yaml.Unmarshal([]byte(resultConfig), &config))
+
+				pipelines := config.MustMap("service").MustMap("pipelines")
+				require.Len(t, pipelines, 2)
+				assert.NotNil(t, pipelines.MustMap("traces/trace-observer"))
+
+				greptimePipeline := pipelines.MustMap("metrics/observeroutput/greptimedb")
+				assert.Equal(t, []any{"datavolume/trace-observer"}, greptimePipeline.MustSlice("receivers"))
+				assert.Equal(t, []any{"otlphttp/greptimedb"}, greptimePipeline.MustSlice("exporters"))
+				assert.NotContains(t, greptimePipeline, "processors")
+
+				connectors := config.MustMap("connectors")
+				assert.NotContains(t, connectors.MustMap("datavolume/trace-observer"), "aggregation_temporality")
+
+				exporter := config.MustMap("exporters").MustMap("otlphttp/greptimedb")
+				assert.Equal(t, "http://${env:GREPTIME_HOST}:${env:GREPTIME_HTTP_PORT}/v1/otlp", exporter.MustString("endpoint"))
+				assert.Equal(t, "basicauth/client", exporter.MustMap("auth").MustString("authenticator"))
+				assert.Equal(t, "${env:GREPTIME_DATABASE}", exporter.MustMap("headers").MustString("x-greptime-db-name"))
+				assert.Equal(t, "service.name", exporter.MustMap("headers").MustString("x-greptime-otlp-metric-promote-resource-attrs"))
+				assert.True(t, exporter.MustMap("tls")["insecure"].(bool)) //nolint:forcetypeassert // test asserts on a known config shape
+
+				extension := config.MustMap("extensions").MustMap("basicauth/client").MustMap("client_auth")
+				assert.Equal(t, "${env:GREPTIME_USER}", extension.MustString("username"))
+				assert.Equal(t, "${env:GREPTIME_PASSWD}", extension.MustString("password"))
+				assert.Contains(t, config.MustMap("service").MustSlice("extensions"), "basicauth/client")
+			},
+		},
+		{
+			desc: "greptimedb observers promote selected resource attributes",
+			observers: []mdaiv1.Observer{
+				{
+					Name:                    "trace-observer",
+					TelemetryType:           "traces",
+					LabelResourceAttributes: []string{"service.name", "team", "service.name"},
+					AggregationTemporality:  mdaiv1.AggregationTemporalityDelta,
+					MetricsBackend:          "greptimedb",
+				},
+				{
+					Name:                    "log-observer",
+					TelemetryType:           "logs",
+					LabelResourceAttributes: []string{"region"},
+					AggregationTemporality:  mdaiv1.AggregationTemporalityDelta,
+					MetricsBackend:          "greptimedb",
+				},
+			},
+			check: func(t *testing.T, resultConfig string, err error) {
+				t.Helper()
+				require.NoError(t, err)
+
+				var config builder.ConfigBlock
+				require.NoError(t, yaml.Unmarshal([]byte(resultConfig), &config))
+
+				headers := config.MustMap("exporters").MustMap("otlphttp/greptimedb").MustMap("headers")
+				assert.Equal(t, "${env:GREPTIME_DATABASE}", headers.MustString("x-greptime-db-name"))
+				assert.Equal(t, "service.name;team;region", headers.MustString("x-greptime-otlp-metric-promote-resource-attrs"))
+			},
+		},
+		{
+			desc: "cumulative greptimedb observer includes deltatocumulative processor",
+			observers: []mdaiv1.Observer{
+				{
+					Name:                    "watcher4",
+					TelemetryType:           "logs",
+					LabelResourceAttributes: []string{"service.name", "team", "region"},
+					AggregationTemporality:  mdaiv1.AggregationTemporalityCumulative,
+					MetricsBackend:          "greptimedb",
+					CountMetricName:         lo.ToPtr("mdai_watcher_four_count_total"),
+					BytesMetricName:         lo.ToPtr("mdai_watcher_four_bytes_total"),
+					Filter: &mdaiv1.ObserverFilter{
+						ErrorMode: lo.ToPtr("ignore"),
+						Logs: &mdaiv1.ObserverLogsFilter{
+							LogRecord: []string{`attributes["log_level"] == "INFO"`},
+						},
+					},
+				},
+			},
+			check: func(t *testing.T, resultConfig string, err error) {
+				t.Helper()
+				require.NoError(t, err)
+
+				var config builder.ConfigBlock
+				require.NoError(t, yaml.Unmarshal([]byte(resultConfig), &config))
+
+				pipeline := config.MustMap("service").MustMap("pipelines").MustMap("metrics/observeroutput/greptimedb")
+				assert.Equal(t, []any{"datavolume/watcher4"}, pipeline.MustSlice("receivers"))
+				assert.Equal(t, []any{"deltatocumulative"}, pipeline.MustSlice("processors"))
+				assert.Equal(t, []any{"otlphttp/greptimedb"}, pipeline.MustSlice("exporters"))
+			},
+		},
+		{
+			desc: "mixed-temporality greptimedb observers split into per-temporality pipelines",
+			observers: []mdaiv1.Observer{
+				{
+					Name:                    "delta-observer",
+					TelemetryType:           "logs",
+					LabelResourceAttributes: []string{"service.name"},
+					AggregationTemporality:  mdaiv1.AggregationTemporalityDelta,
+					MetricsBackend:          "greptimedb",
+				},
+				{
+					Name:                    "cumulative-observer",
+					TelemetryType:           "logs",
+					LabelResourceAttributes: []string{"service.name"},
+					AggregationTemporality:  mdaiv1.AggregationTemporalityCumulative,
+					MetricsBackend:          "greptimedb",
+				},
+			},
+			check: func(t *testing.T, resultConfig string, err error) {
+				t.Helper()
+				require.NoError(t, err)
+
+				var config builder.ConfigBlock
+				require.NoError(t, yaml.Unmarshal([]byte(resultConfig), &config))
+
+				pipelines := config.MustMap("service").MustMap("pipelines")
+
+				// Delta observer: base pipeline, no deltatocumulative conversion.
+				deltaPipeline := pipelines.MustMap("metrics/observeroutput/greptimedb")
+				assert.Equal(t, []any{"datavolume/delta-observer"}, deltaPipeline.MustSlice("receivers"))
+				assert.Equal(t, []any{"otlphttp/greptimedb"}, deltaPipeline.MustSlice("exporters"))
+				assert.NotContains(t, deltaPipeline, "processors")
+
+				// Cumulative observer: separate pipeline that does convert to cumulative.
+				cumulativePipeline := pipelines.MustMap("metrics/observeroutput/greptimedb/cumulative")
+				assert.Equal(t, []any{"datavolume/cumulative-observer"}, cumulativePipeline.MustSlice("receivers"))
+				assert.Equal(t, []any{"deltatocumulative"}, cumulativePipeline.MustSlice("processors"))
+				assert.Equal(t, []any{"otlphttp/greptimedb"}, cumulativePipeline.MustSlice("exporters"))
+			},
+		},
+		{
+			desc: "delta prometheus observer omits deltatocumulative processor",
+			observers: []mdaiv1.Observer{
+				{
+					Name:                    "delta-observer",
+					TelemetryType:           "logs",
+					LabelResourceAttributes: []string{"service.name"},
+					AggregationTemporality:  mdaiv1.AggregationTemporalityDelta,
+					MetricsBackend:          "prometheus",
+				},
+			},
+			check: func(t *testing.T, resultConfig string, err error) {
+				t.Helper()
+				require.NoError(t, err)
+
+				var config builder.ConfigBlock
+				require.NoError(t, yaml.Unmarshal([]byte(resultConfig), &config))
+
+				pipeline := config.MustMap("service").MustMap("pipelines").MustMap("metrics/observeroutput")
+				assert.Equal(t, []any{"datavolume/delta-observer"}, pipeline.MustSlice("receivers"))
+				assert.Equal(t, []any{"prometheus"}, pipeline.MustSlice("exporters"))
+				assert.NotContains(t, pipeline, "processors")
 			},
 		},
 	}

@@ -48,7 +48,7 @@ spec:
                     minimum: 1
                     type: integer
                   image:
-                    default: public.ecr.aws/decisiveai/observer-collector:0.1.6
+                    default: public.ecr.aws/decisiveai/observer-collector:0.1.7
                     type: string
                   ownLogsOtlpEndpoint:
                     type: string
@@ -160,6 +160,13 @@ spec:
               observers:
                 items:
                   properties:
+                    aggregation_temporality:
+                      description: AggregationTemporality controls how a metric's data
+                        points are reported over time.
+                      enum:
+                      - delta
+                      - cumulative
+                      type: string
                     bytesMetricName:
                       type: string
                     countMetricName:
@@ -177,17 +184,54 @@ spec:
                           required:
                           - log_record
                           type: object
+                        traces:
+                          properties:
+                            span:
+                              items:
+                                type: string
+                              type: array
+                          required:
+                          - span
+                          type: object
                       type: object
                     labelResourceAttributes:
                       items:
                         type: string
                       type: array
+                    metrics_backend:
+                      description: MetricsBackend identifies the backend an observer's
+                        metrics are exported to.
+                      enum:
+                      - prometheus
+                      - greptimedb
+                      type: string
                     name:
                       type: string
+                    telemetry_type:
+                      description: TelemetryType identifies the telemetry signal an
+                        observer ingests.
+                      enum:
+                      - logs
+                      - traces
+                      type: string
                   required:
+                  - aggregation_temporality
                   - labelResourceAttributes
+                  - metrics_backend
                   - name
+                  - telemetry_type
                   type: object
+                  x-kubernetes-validations:
+                  - message: When telemetry_type is 'logs', filter.traces must be omitted.
+                    rule: 'self.telemetry_type == ''logs'' && has(self.filter) ? !has(self.filter.traces)
+                      : true'
+                  - message: When telemetry_type is 'traces', filter.logs must be omitted.
+                    rule: 'self.telemetry_type == ''traces'' && has(self.filter) ? !has(self.filter.logs)
+                      : true'
+                  - message: When metrics_backend is 'prometheus', aggregation_temporality
+                      must be 'cumulative'.
+                    rule: 'self.metrics_backend == ''prometheus'' ? self.aggregation_temporality
+                      == ''cumulative'' : true'
                 type: array
             type: object
           status:
