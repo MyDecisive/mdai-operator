@@ -30,7 +30,6 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/client-go/tools/record"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 )
@@ -993,7 +992,7 @@ func TestEnsureEvaluationsSynchronized_WithEvaluations(t *testing.T) {
 		t.Errorf("expected alert name 'alert1', got %q", rule.Alert)
 	}
 	if rule.Expr != intstr.FromString("up == 0") {
-		t.Errorf("expected expr 'up == 0', got %q", rule.Expr)
+		t.Errorf("expected expr 'up == 0', got %q", rule.Expr.String())
 	}
 	if *rule.For != duration1 {
 		t.Errorf("expected For '5m', got %q", *rule.For)
@@ -1134,8 +1133,8 @@ func TestEnsureAutomationsSynchronized(t *testing.T) {
 		{
 			Name: "automation-1",
 			When: mdaiv1.When{
-				AlertName: ptr.To("my-alert"),
-				Status:    ptr.To("firing"),
+				AlertName: new("my-alert"),
+				Status:    new("firing"),
 			},
 			Then: []mdaiv1.Action{
 				{

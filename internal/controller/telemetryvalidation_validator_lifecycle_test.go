@@ -1,7 +1,6 @@
 package controller
 
 import (
-	"context"
 	"strings"
 	"testing"
 
@@ -78,7 +77,8 @@ func TestReconcileValidatorLifecycle(t *testing.T) {
 	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(tv, collector).Build()
 	r := &TelemetryValidationReconciler{Client: c, Scheme: scheme}
 
-	validatorName, validatorService, validatorEndpoint, _, err := r.reconcileValidator(context.Background(), tv, "run-123")
+	ctx := t.Context()
+	validatorName, validatorService, validatorEndpoint, _, err := r.reconcileValidator(ctx, tv, "run-123")
 	require.NoError(t, err)
 	assert.Equal(t, "sample-fidelity-validator", validatorName)
 	assert.Equal(t, "sample-fidelity-validator", validatorService)
@@ -137,7 +137,7 @@ func TestReconcileValidatorLifecycle(t *testing.T) {
 	assertDeploymentEnvVar(t, deploy, "MDAI_DATADOG_AGENT_INGEST_ADDR", ":18126")
 
 	tv.Spec.Enabled = false
-	validatorName, validatorService, validatorEndpoint, _, err = r.reconcileValidator(context.Background(), tv, "run-123")
+	validatorName, validatorService, validatorEndpoint, _, err = r.reconcileValidator(ctx, tv, "run-123")
 	require.NoError(t, err)
 	assert.Empty(t, validatorName)
 	assert.Empty(t, validatorService)
@@ -211,7 +211,7 @@ func TestReconcileValidatorLifecycleUsesEmbeddedDefaultsWhenValidatorConfigEmpty
 	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(tv, collector).Build()
 	r := &TelemetryValidationReconciler{Client: c, Scheme: scheme}
 
-	_, _, validatorEndpoint, _, err := r.reconcileValidator(context.Background(), tv, "run-123") //nolint:dogsled
+	_, _, validatorEndpoint, _, err := r.reconcileValidator(t.Context(), tv, "run-123") //nolint:dogsled
 	require.NoError(t, err)
 	assert.NotEmpty(t, validatorEndpoint)
 
@@ -312,7 +312,7 @@ func TestReconcileCreatesShadowCollectorLabels(t *testing.T) {
 		Build()
 	r := &TelemetryValidationReconciler{Client: c, Scheme: scheme}
 
-	_, err := r.Reconcile(context.Background(), ctrl.Request{
+	_, err := r.Reconcile(t.Context(), ctrl.Request{
 		NamespacedName: types.NamespacedName{Name: tv.Name, Namespace: tv.Namespace},
 	})
 	require.NoError(t, err)
@@ -334,13 +334,13 @@ func TestReconcileCreatesShadowCollectorLabels(t *testing.T) {
 
 func assertObjectExists(t *testing.T, c client.Client, obj client.Object, key types.NamespacedName) {
 	t.Helper()
-	err := c.Get(context.Background(), key, obj)
+	err := c.Get(t.Context(), key, obj)
 	require.NoError(t, err)
 }
 
 func assertObjectNotFound(t *testing.T, c client.Client, obj client.Object, key types.NamespacedName) {
 	t.Helper()
-	err := c.Get(context.Background(), key, obj)
+	err := c.Get(t.Context(), key, obj)
 	require.Error(t, err)
 }
 

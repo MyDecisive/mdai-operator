@@ -18,8 +18,8 @@ SHELL = /usr/bin/env bash -o pipefail
 
 # Update this version to match new release tag and run helm targets
 VERSION ?= 0.2.21
-GOTOOLCHAIN ?= go1.25.0
-GO := CGO_ENABLED=0 GOTOOLCHAIN=$(GOTOOLCHAIN) go 
+GOTOOLCHAIN ?= go1.26.5
+GO := CGO_ENABLED=0 GOTOOLCHAIN=$(GOTOOLCHAIN) go
 GO_TEST := $(GO) test -count=1
 
 # Image URL to use all building/pushing image targets

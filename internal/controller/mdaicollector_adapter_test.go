@@ -1,7 +1,6 @@
 package controller
 
 import (
-	"context"
 	"fmt"
 	"testing"
 
@@ -17,7 +16,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/tools/record"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 )
@@ -161,7 +159,7 @@ func TestGetPipelineWithS3Exporter(t *testing.T) {
 
 	for idx, testCase := range testCases {
 		t.Run(fmt.Sprintf("Case %d %s", idx, testCase.exporterName), func(t *testing.T) {
-			assert.Equal(t, testCase.expected, getPipelineWithExporterAndSeverityFilter(testCase.receiverName, testCase.exporterName, ptr.To(testCase.severityLevel), "batch"))
+			assert.Equal(t, testCase.expected, getPipelineWithExporterAndSeverityFilter(testCase.receiverName, testCase.exporterName, new(testCase.severityLevel), "batch"))
 		})
 	}
 }
@@ -182,13 +180,14 @@ func TestCreateOrUpdateMdaiCollectorRole(t *testing.T) {
 	expectedName := adapter.getScopedMdaiCollectorResourceName("role")
 
 	t.Run(fmt.Sprintf("creates or updates ClusterRole %q", expectedName), func(t *testing.T) {
-		name, err := adapter.createOrUpdateMdaiCollectorRole(context.Background())
+		ctx := t.Context()
+		name, err := adapter.createOrUpdateMdaiCollectorRole(ctx)
 		require.NoError(t, err)
 		assert.Equal(t, expectedName, name)
 
 		var role rbacv1.ClusterRole
 		require.NoError(t,
-			cl.Get(context.Background(), client.ObjectKey{Name: name}, &role),
+			cl.Get(ctx, client.ObjectKey{Name: name}, &role),
 		)
 
 		assert.Equal(t, expectedName, role.Name)
@@ -225,11 +224,12 @@ func TestCreateOrUpdateMdaiCollectorRoleBinding(t *testing.T) {
 	saName := "mdai-sa"
 
 	t.Run(fmt.Sprintf("creates/updates RoleBinding %q", expectedName), func(t *testing.T) {
-		err := adapter.createOrUpdateMdaiCollectorRoleBinding(context.Background(), namespace, roleName, saName)
+		ctx := t.Context()
+		err := adapter.createOrUpdateMdaiCollectorRoleBinding(ctx, namespace, roleName, saName)
 		require.NoError(t, err)
 
 		var rb rbacv1.ClusterRoleBinding
-		require.NoError(t, cl.Get(context.Background(), client.ObjectKey{Name: expectedName}, &rb))
+		require.NoError(t, cl.Get(ctx, client.ObjectKey{Name: expectedName}, &rb))
 
 		assert.Equal(t, expectedName, rb.Name)
 		assert.Equal(t, map[string]string{

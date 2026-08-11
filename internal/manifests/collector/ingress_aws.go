@@ -22,7 +22,7 @@ func IngressAws(params manifests.Params) (*networkingv1.Ingress, error) {
 	// TODO: rework labels & annotations
 	labels := params.OtelMdaiIngressComb.MdaiIngress.Labels
 
-	var annotations = make(map[string]string)
+	annotations := make(map[string]string)
 	otelcolAnnotations := maps.Clone(params.OtelMdaiIngressComb.Otelcol.Annotations)
 	ingressAnnotations := params.OtelMdaiIngressComb.MdaiIngress.Spec.Annotations
 	if len(otelcolAnnotations) > 0 {
@@ -44,8 +44,8 @@ func IngressAws(params manifests.Params) (*networkingv1.Ingress, error) {
 	}
 	for comp, portsEndpoints := range compPortsEndpoints {
 		// deleting all non-grpc ports
-		for i := len(portsEndpoints) - 1; i >= 0; i-- {
-			if portsEndpoints[i].Port.AppProtocol == nil || (portsEndpoints[i].Port.AppProtocol != nil && *portsEndpoints[i].Port.AppProtocol != "grpc") {
+		for i, v := range slices.Backward(portsEndpoints) {
+			if v.Port.AppProtocol == nil || (v.Port.AppProtocol != nil && *v.Port.AppProtocol != "grpc") {
 				portsEndpoints = append(portsEndpoints[:i], portsEndpoints[i+1:]...)
 			}
 		}
@@ -116,12 +116,12 @@ func createPathIngressRulesUrlPaths(logger *zap.Logger, otelcol string, colEndpo
 	pathType := networkingv1.PathTypePrefix
 	var ingressRules []networkingv1.IngressRule
 	for comp, portsUrlPaths := range compPortsUrlPaths {
-		var totalPaths = 0
+		totalPaths := 0
 		for _, portUrlPaths := range portsUrlPaths {
 			totalPaths += len(portUrlPaths.UrlPaths)
 		}
 		paths := make([]networkingv1.HTTPIngressPath, totalPaths)
-		var i = 0
+		i := 0
 		for _, portUrlPaths := range portsUrlPaths {
 			portName := naming.PortName(portUrlPaths.Port.Name, portUrlPaths.Port.Port)
 			for _, endpoint := range portUrlPaths.UrlPaths {

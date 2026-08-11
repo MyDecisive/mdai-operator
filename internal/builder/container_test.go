@@ -7,7 +7,6 @@ import (
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
-	"k8s.io/utils/ptr"
 )
 
 func TestContainerBuilderEquivalence(t *testing.T) {
@@ -63,7 +62,7 @@ func TestContainerBuilderHelpers(t *testing.T) {
 						corev1.ContainerPort{ContainerPort: 443, Name: "https"},
 					).
 					WithVolumeMounts(corev1.VolumeMount{Name: "cfg", MountPath: "/etc/cfg"}).
-					WithSecurityContext(&corev1.SecurityContext{RunAsNonRoot: ptr.To(true)}).
+					WithSecurityContext(&corev1.SecurityContext{RunAsNonRoot: new(true)}).
 					WithEnvFrom(corev1.EnvFromSource{
 						ConfigMapRef: &corev1.ConfigMapEnvSource{LocalObjectReference: corev1.LocalObjectReference{Name: "cm"}},
 					}).
@@ -80,7 +79,7 @@ func TestContainerBuilderHelpers(t *testing.T) {
 				VolumeMounts: []corev1.VolumeMount{
 					{Name: "cfg", MountPath: "/etc/cfg"},
 				},
-				SecurityContext: &corev1.SecurityContext{RunAsNonRoot: ptr.To(true)},
+				SecurityContext: &corev1.SecurityContext{RunAsNonRoot: new(true)},
 				EnvFrom: []corev1.EnvFromSource{
 					{ConfigMapRef: &corev1.ConfigMapEnvSource{LocalObjectReference: corev1.LocalObjectReference{Name: "cm"}}},
 				},

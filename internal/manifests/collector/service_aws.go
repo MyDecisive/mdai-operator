@@ -3,6 +3,7 @@ package collector
 
 import (
 	"maps"
+	"slices"
 
 	"github.com/go-logr/zapr"
 	hubv1 "github.com/mydecisive/mdai-operator/api/v1"
@@ -26,7 +27,7 @@ func GrpcService(params manifests.Params) (*corev1.Service, error) {
 	name := naming.GrpcService(params.OtelMdaiIngressComb.Otelcol.Name)
 	labels := manifestutils.Labels(params.OtelMdaiIngressComb.Otelcol.ObjectMeta, name, params.OtelMdaiIngressComb.Otelcol.Spec.Image, []string{})
 
-	var annotations = make(map[string]string)
+	annotations := make(map[string]string)
 	otelcolAnnotations := maps.Clone(params.OtelMdaiIngressComb.Otelcol.Annotations)
 	serviceAnnotations := params.OtelMdaiIngressComb.MdaiIngress.Spec.GrpcService.Annotations
 	if len(otelcolAnnotations) > 0 {
@@ -41,8 +42,8 @@ func GrpcService(params manifests.Params) (*corev1.Service, error) {
 		return nil, err
 	}
 
-	for i := len(ports) - 1; i >= 0; i-- {
-		if ports[i].AppProtocol == nil || (ports[i].AppProtocol != nil && *ports[i].AppProtocol != "grpc") {
+	for i, v := range slices.Backward(ports) {
+		if v.AppProtocol == nil || (v.AppProtocol != nil && *v.AppProtocol != "grpc") {
 			ports = append(ports[:i], ports[i+1:]...)
 		}
 	}
@@ -95,7 +96,7 @@ func NonGrpcService(params manifests.Params) (*corev1.Service, error) {
 	name := naming.NonGrpcService(params.OtelMdaiIngressComb.Otelcol.Name)
 	labels := manifestutils.Labels(params.OtelMdaiIngressComb.Otelcol.ObjectMeta, name, params.OtelMdaiIngressComb.Otelcol.Spec.Image, []string{})
 
-	var annotations = make(map[string]string)
+	annotations := make(map[string]string)
 	otelcolAnnotations := maps.Clone(params.OtelMdaiIngressComb.Otelcol.Annotations)
 	serviceAnnotations := params.OtelMdaiIngressComb.MdaiIngress.Spec.NonGrpcService.Annotations
 	if len(otelcolAnnotations) > 0 {
@@ -129,8 +130,8 @@ func NonGrpcService(params manifests.Params) (*corev1.Service, error) {
 		ports = append(toServicePorts(params.OtelMdaiIngressComb.Otelcol.Spec.Ports), resultingInferredPorts...)
 	}
 
-	for i := len(ports) - 1; i >= 0; i-- {
-		if ports[i].AppProtocol != nil && *ports[i].AppProtocol == "grpc" {
+	for i, v := range slices.Backward(ports) {
+		if v.AppProtocol != nil && *v.AppProtocol == "grpc" {
 			ports = append(ports[:i], ports[i+1:]...)
 		}
 	}

@@ -1,7 +1,6 @@
 package v1
 
 import (
-	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -17,7 +16,7 @@ import (
 func TestMdaiDalDefaultsAndValidation(t *testing.T) {
 	t.Parallel()
 
-	ctx := context.Background()
+	ctx := t.Context()
 	k8sClient, stopEnv := startMdaiDalEnv(t)
 	t.Cleanup(stopEnv)
 

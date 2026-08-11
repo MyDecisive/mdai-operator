@@ -1,8 +1,8 @@
 module github.com/mydecisive/mdai-operator
 
-go 1.25.0
+go 1.26.5
 
-godebug default=go1.25
+godebug default=go1.26
 
 require (
 	dario.cat/mergo v1.0.2
@@ -21,7 +21,6 @@ require (
 	github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring v0.81.0
 	github.com/prometheus/common v0.67.5
 	github.com/prometheus/prometheus v0.311.3
-	github.com/samber/lo v1.52.0
 	github.com/stretchr/testify v1.11.1
 	github.com/valkey-io/valkey-go v1.0.62
 	github.com/valkey-io/valkey-go/mock v1.0.62

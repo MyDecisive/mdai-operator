@@ -58,7 +58,7 @@ func TestMdaiDalReconciler_ReconcileHandlerRejectsUnknownAdapter(t *testing.T) {
 
 	reconciler := &MdaiDalReconciler{}
 
-	_, err := reconciler.ReconcileHandler(context.Background(), fakeMdaiDalAdapter{})
+	_, err := reconciler.ReconcileHandler(t.Context(), fakeMdaiDalAdapter{})
 	require.Error(t, err)
 }
 
@@ -108,13 +108,14 @@ func TestMdaiDalReconciler_ReconcileHandlerSuccess(t *testing.T) {
 	adapter := *NewMdaiDalAdapter(dalCR, logr.Discard(), k8sClient, scheme)
 	reconciler := &MdaiDalReconciler{Client: k8sClient, Scheme: scheme}
 
-	result, err := reconciler.ReconcileHandler(context.Background(), adapter)
+	ctx := t.Context()
+	result, err := reconciler.ReconcileHandler(ctx, adapter)
 
 	require.NoError(t, err)
 	assert.Equal(t, ctrl.Result{}, result)
 
 	updated := &mdaiv1.MdaiDal{}
-	require.NoError(t, k8sClient.Get(context.Background(), types.NamespacedName{
+	require.NoError(t, k8sClient.Get(ctx, types.NamespacedName{
 		Name:      "mdai-dal",
 		Namespace: "default",
 	}, updated))

@@ -7,7 +7,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 )
 
@@ -73,26 +72,26 @@ func createObserver() *mdaiv1.MdaiObserver {
 				{
 					Name:                    "watcher1",
 					LabelResourceAttributes: []string{"service.name"},
-					CountMetricName:         ptr.To("mdai_watcher_one_count_total"),
-					BytesMetricName:         ptr.To("mdai_watcher_one_bytes_total"),
+					CountMetricName:         new("mdai_watcher_one_count_total"),
+					BytesMetricName:         new("mdai_watcher_one_bytes_total"),
 				},
 				{
 					Name:                    "watcher2",
 					LabelResourceAttributes: []string{"team", "log_level"},
-					CountMetricName:         ptr.To("mdai_watcher_two_count_total"),
+					CountMetricName:         new("mdai_watcher_two_count_total"),
 				},
 				{
 					Name:                    "watcher3",
 					LabelResourceAttributes: []string{"region", "log_level"},
-					BytesMetricName:         ptr.To("mdai_watcher_three_count_total"),
+					BytesMetricName:         new("mdai_watcher_three_count_total"),
 				},
 				{
 					Name:                    "watcher4",
 					LabelResourceAttributes: []string{"service.name", "team", "region"},
-					CountMetricName:         ptr.To("mdai_watcher_four_count_total"),
-					BytesMetricName:         ptr.To("mdai_watcher_four_bytes_total"),
+					CountMetricName:         new("mdai_watcher_four_count_total"),
+					BytesMetricName:         new("mdai_watcher_four_bytes_total"),
 					Filter: &mdaiv1.ObserverFilter{
-						ErrorMode: ptr.To("ignore"),
+						ErrorMode: new("ignore"),
 						Logs: &mdaiv1.ObserverLogsFilter{
 							LogRecord: []string{`attributes["log_level"] == "INFO"`},
 						},

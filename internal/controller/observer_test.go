@@ -6,7 +6,6 @@ import (
 	"github.com/go-logr/logr"
 	mdaiv1 "github.com/mydecisive/mdai-operator/api/v1"
 	"github.com/mydecisive/mdai-operator/internal/builder"
-	"github.com/samber/lo"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"sigs.k8s.io/yaml"
@@ -25,8 +24,8 @@ func TestGetObserverCollectorConfig(t *testing.T) {
 			desc:      "no observers provided",
 			observers: []mdaiv1.Observer{},
 			observerResource: mdaiv1.ObserverResource{
-				GrpcReceiverMaxMsgSize: lo.ToPtr(uint64(123)),
-				OwnLogsOtlpEndpoint:    lo.ToPtr("otlp://my.endpoint:4317"),
+				GrpcReceiverMaxMsgSize: new(uint64(123)),
+				OwnLogsOtlpEndpoint:    new("otlp://my.endpoint:4317"),
 			},
 			check: func(t *testing.T, resultConfig string, err error) {
 				t.Helper()
@@ -56,12 +55,12 @@ func TestGetObserverCollectorConfig(t *testing.T) {
 					Name:                    "observer-in",
 					TelemetryType:           "logs",
 					LabelResourceAttributes: []string{"mdai_service"},
-					CountMetricName:         lo.ToPtr("items_received_by_service_total"),
-					BytesMetricName:         lo.ToPtr("bytes_received_by_service_total"),
+					CountMetricName:         new("items_received_by_service_total"),
+					BytesMetricName:         new("bytes_received_by_service_total"),
 					AggregationTemporality:  mdaiv1.AggregationTemporalityCumulative,
 					MetricsBackend:          "prometheus",
 					Filter: &mdaiv1.ObserverFilter{
-						ErrorMode: lo.ToPtr("ignore"),
+						ErrorMode: new("ignore"),
 						Logs: &mdaiv1.ObserverLogsFilter{
 							LogRecord: []string{`resource.attributes["observer_direction"] != "received"`},
 						},
@@ -71,12 +70,12 @@ func TestGetObserverCollectorConfig(t *testing.T) {
 					Name:                    "observer-out",
 					TelemetryType:           "logs",
 					LabelResourceAttributes: []string{"mdai_service"},
-					CountMetricName:         lo.ToPtr("items_sent_by_service_total"),
-					BytesMetricName:         lo.ToPtr("bytes_sent_by_service_total"),
+					CountMetricName:         new("items_sent_by_service_total"),
+					BytesMetricName:         new("bytes_sent_by_service_total"),
 					AggregationTemporality:  mdaiv1.AggregationTemporalityCumulative,
 					MetricsBackend:          "prometheus",
 					Filter: &mdaiv1.ObserverFilter{
-						ErrorMode: lo.ToPtr("ignore"),
+						ErrorMode: new("ignore"),
 						Logs: &mdaiv1.ObserverLogsFilter{
 							LogRecord: []string{`resource.attributes["observer_direction"] != "exported"`},
 						},
@@ -84,8 +83,8 @@ func TestGetObserverCollectorConfig(t *testing.T) {
 				},
 			},
 			observerResource: mdaiv1.ObserverResource{
-				GrpcReceiverMaxMsgSize: lo.ToPtr(uint64(123)),
-				OwnLogsOtlpEndpoint:    lo.ToPtr("otlp://my.endpoint:4317"),
+				GrpcReceiverMaxMsgSize: new(uint64(123)),
+				OwnLogsOtlpEndpoint:    new("otlp://my.endpoint:4317"),
 			},
 			check: func(t *testing.T, resultConfig string, err error) {
 				t.Helper()
@@ -146,7 +145,7 @@ func TestGetObserverCollectorConfig(t *testing.T) {
 					AggregationTemporality:  mdaiv1.AggregationTemporalityDelta,
 					MetricsBackend:          "greptimedb",
 					Filter: &mdaiv1.ObserverFilter{
-						ErrorMode: lo.ToPtr("ignore"),
+						ErrorMode: new("ignore"),
 						Traces: &mdaiv1.ObserverTracesFilter{
 							Span: []string{`attributes["http.status_code"] >= 500`},
 						},
@@ -224,10 +223,10 @@ func TestGetObserverCollectorConfig(t *testing.T) {
 					LabelResourceAttributes: []string{"service.name", "team", "region"},
 					AggregationTemporality:  mdaiv1.AggregationTemporalityCumulative,
 					MetricsBackend:          "greptimedb",
-					CountMetricName:         lo.ToPtr("mdai_watcher_four_count_total"),
-					BytesMetricName:         lo.ToPtr("mdai_watcher_four_bytes_total"),
+					CountMetricName:         new("mdai_watcher_four_count_total"),
+					BytesMetricName:         new("mdai_watcher_four_bytes_total"),
 					Filter: &mdaiv1.ObserverFilter{
-						ErrorMode: lo.ToPtr("ignore"),
+						ErrorMode: new("ignore"),
 						Logs: &mdaiv1.ObserverLogsFilter{
 							LogRecord: []string{`attributes["log_level"] == "INFO"`},
 						},

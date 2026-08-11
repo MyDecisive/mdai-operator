@@ -1,7 +1,6 @@
 package xds
 
 import (
-	"context"
 	"fmt"
 	"testing"
 
@@ -29,7 +28,7 @@ func TestUpdateSnapshotAddsWildcardFallbackForSharedPort(t *testing.T) {
 		newCollector("beta", "mdai", 4317),
 	}
 
-	err := manager.UpdateSnapshot(context.Background(), "envoy-hub-proxy", collectors, nil)
+	err := manager.UpdateSnapshot(t.Context(), "envoy-hub-proxy", collectors, nil)
 	require.NoError(t, err)
 
 	snapshot, err := manager.cache.GetSnapshot("envoy-hub-proxy")
@@ -109,7 +108,7 @@ func TestUpdateSnapshotUsesValidatorServiceFromTelemetryValidationStatus(t *test
 		},
 	}
 
-	err := manager.UpdateSnapshot(context.Background(), "envoy-hub-proxy", collectors, validations)
+	err := manager.UpdateSnapshot(t.Context(), "envoy-hub-proxy", collectors, validations)
 	require.NoError(t, err)
 
 	snapshot, err := manager.cache.GetSnapshot("envoy-hub-proxy")
@@ -154,7 +153,7 @@ func TestUpdateSnapshotSkipsValidatorMirrorUntilValidatorServiceReady(t *testing
 		},
 	}
 
-	err := manager.UpdateSnapshot(context.Background(), "envoy-hub-proxy", collectors, validations)
+	err := manager.UpdateSnapshot(t.Context(), "envoy-hub-proxy", collectors, validations)
 	require.NoError(t, err)
 
 	snapshot, err := manager.cache.GetSnapshot("envoy-hub-proxy")
@@ -193,7 +192,7 @@ func TestUpdateSnapshotUsesCollectorListenerPortForValidatorMirror(t *testing.T)
 		},
 	}
 
-	err := manager.UpdateSnapshot(context.Background(), "envoy-hub-proxy", collectors, validations)
+	err := manager.UpdateSnapshot(t.Context(), "envoy-hub-proxy", collectors, validations)
 	require.NoError(t, err)
 
 	snapshot, err := manager.cache.GetSnapshot("envoy-hub-proxy")
@@ -256,7 +255,7 @@ func TestUpdateSnapshotUsesUniqueMirrorClusterNamesPerValidation(t *testing.T) {
 		},
 	}
 
-	err := manager.UpdateSnapshot(context.Background(), "envoy-hub-proxy", collectors, validations)
+	err := manager.UpdateSnapshot(t.Context(), "envoy-hub-proxy", collectors, validations)
 	require.NoError(t, err)
 
 	snapshot, err := manager.cache.GetSnapshot("envoy-hub-proxy")
@@ -288,7 +287,7 @@ func TestUpdateSnapshotSetsHTTP2UpstreamProtocolOptionsOnClusters(t *testing.T) 
 		newCollector("gateway", "mdai", 4317),
 	}
 
-	err := manager.UpdateSnapshot(context.Background(), "envoy-hub-proxy", collectors, nil)
+	err := manager.UpdateSnapshot(t.Context(), "envoy-hub-proxy", collectors, nil)
 	require.NoError(t, err)
 
 	snapshot, err := manager.cache.GetSnapshot("envoy-hub-proxy")
@@ -320,7 +319,7 @@ func TestUpdateSnapshotDoesNotForceHTTP2ForNonGRPCPorts(t *testing.T) {
 		newCollectorWithProtocol("gateway", "mdai", "http", 4318),
 	}
 
-	err := manager.UpdateSnapshot(context.Background(), "envoy-hub-proxy", collectors, nil)
+	err := manager.UpdateSnapshot(t.Context(), "envoy-hub-proxy", collectors, nil)
 	require.NoError(t, err)
 
 	snapshot, err := manager.cache.GetSnapshot("envoy-hub-proxy")
@@ -364,7 +363,7 @@ func TestUpdateSnapshotPrefixesClusterNamesWithMdaiConnection(t *testing.T) {
 		newCollectorWithApp("gateway", "mdai", "my-hub"),
 	}
 
-	err := manager.UpdateSnapshot(context.Background(), "envoy-hub-proxy", collectors, nil)
+	err := manager.UpdateSnapshot(t.Context(), "envoy-hub-proxy", collectors, nil)
 	require.NoError(t, err)
 
 	snapshot, err := manager.cache.GetSnapshot("envoy-hub-proxy")
@@ -404,7 +403,7 @@ func TestUpdateSnapshotPrefixesValidatorAndShadowClusterNamesWithMdaiConnection(
 		},
 	}
 
-	err := manager.UpdateSnapshot(context.Background(), "envoy-hub-proxy", collectors, validations)
+	err := manager.UpdateSnapshot(t.Context(), "envoy-hub-proxy", collectors, validations)
 	require.NoError(t, err)
 
 	snapshot, err := manager.cache.GetSnapshot("envoy-hub-proxy")
@@ -430,7 +429,7 @@ func TestUpdateSnapshotPrefixesWildcardDefaultClusterWithMdaiConnection(t *testi
 		newCollectorWithApp("beta", "mdai", "my-hub"),
 	}
 
-	err := manager.UpdateSnapshot(context.Background(), "envoy-hub-proxy", collectors, nil)
+	err := manager.UpdateSnapshot(t.Context(), "envoy-hub-proxy", collectors, nil)
 	require.NoError(t, err)
 
 	snapshot, err := manager.cache.GetSnapshot("envoy-hub-proxy")
