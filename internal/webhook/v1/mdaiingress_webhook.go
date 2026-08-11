@@ -7,11 +7,9 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
-	"sigs.k8s.io/controller-runtime/pkg/webhook"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	mdaiv1 "github.com/mydecisive/mdai-operator/api/v1"
@@ -24,7 +22,7 @@ var mdaiIngresslog = logf.Log.WithName("mdaiingress-resource")
 
 // SetupMdaiIngressWebhookWithManager registers the webhook for MdaiIngress in the manager.
 func SetupMdaiIngressWebhookWithManager(mgr ctrl.Manager) error {
-	return ctrl.NewWebhookManagedBy(mgr).For(&mdaiv1.MdaiIngress{}).
+	return ctrl.NewWebhookManagedBy(mgr, &mdaiv1.MdaiIngress{}).
 		WithValidator(&MdaiIngressCustomValidator{client: mgr.GetClient()}).
 		WithDefaulter(&MdaiIngressCustomDefaulter{}).
 		Complete()
@@ -39,17 +37,12 @@ func SetupMdaiIngressWebhookWithManager(mgr ctrl.Manager) error {
 // as it is used only for temporary operations and does not need to be deeply copied.
 type MdaiIngressCustomDefaulter struct{}
 
-var _ webhook.CustomDefaulter = &MdaiIngressCustomDefaulter{}
+var _ admission.Defaulter[*mdaiv1.MdaiIngress] = &MdaiIngressCustomDefaulter{}
 
-// Default implements webhook.CustomDefaulter so a webhook will be registered for the Kind MdaiIngress.
+// Default implements admission.Defaulter so a webhook will be registered for the Kind MdaiIngress.
 //
 //revive:disable:unused-receiver
-func (d *MdaiIngressCustomDefaulter) Default(_ context.Context, obj runtime.Object) error {
-	mdaiIngress, ok := obj.(*mdaiv1.MdaiIngress)
-
-	if !ok {
-		return fmt.Errorf("expected an MdaiIngress object but got %T", obj)
-	}
+func (d *MdaiIngressCustomDefaulter) Default(_ context.Context, mdaiIngress *mdaiv1.MdaiIngress) error {
 	mdaiIngresslog.Info("Defaulting for MdaiIngress", "name", mdaiIngress.GetName())
 
 	if mdaiIngress.Spec.CloudType == "" {
@@ -84,12 +77,10 @@ type MdaiIngressCustomValidator struct {
 	client client.Client
 }
 
-// ValidateCreate implements webhook.CustomValidator so a webhook will be registered for the type MdaiIngress.
-func (v *MdaiIngressCustomValidator) ValidateCreate(ctx context.Context, obj runtime.Object) (admission.Warnings, error) {
-	mdaiIngress, ok := obj.(*mdaiv1.MdaiIngress)
-	if !ok {
-		return nil, fmt.Errorf("expected an MdaiIngress, received %T", obj)
-	}
+var _ admission.Validator[*mdaiv1.MdaiIngress] = &MdaiIngressCustomValidator{}
+
+// ValidateCreate implements admission.Validator so a webhook will be registered for the type MdaiIngress.
+func (v *MdaiIngressCustomValidator) ValidateCreate(ctx context.Context, mdaiIngress *mdaiv1.MdaiIngress) (admission.Warnings, error) {
 	warnings, err := v.Validate(ctx, mdaiIngress)
 	if err != nil {
 		return warnings, err
@@ -97,12 +88,8 @@ func (v *MdaiIngressCustomValidator) ValidateCreate(ctx context.Context, obj run
 	return warnings, nil
 }
 
-// ValidateUpdate implements webhook.CustomValidator so a webhook will be registered for the type MdaiIngress.
-func (v *MdaiIngressCustomValidator) ValidateUpdate(ctx context.Context, _ runtime.Object, newObj runtime.Object) (admission.Warnings, error) {
-	mdaiIngress, ok := newObj.(*mdaiv1.MdaiIngress)
-	if !ok {
-		return nil, fmt.Errorf("expected an MdaiIngress, received %T", newObj)
-	}
+// ValidateUpdate implements admission.Validator so a webhook will be registered for the type MdaiIngress.
+func (v *MdaiIngressCustomValidator) ValidateUpdate(ctx context.Context, _ *mdaiv1.MdaiIngress, mdaiIngress *mdaiv1.MdaiIngress) (admission.Warnings, error) {
 	warnings, err := v.Validate(ctx, mdaiIngress)
 	if err != nil {
 		return warnings, err
@@ -110,8 +97,8 @@ func (v *MdaiIngressCustomValidator) ValidateUpdate(ctx context.Context, _ runti
 	return warnings, nil
 }
 
-// ValidateDelete implements webhook.CustomValidator so a webhook will be registered for the type MdaiINgress.
-func (v *MdaiIngressCustomValidator) ValidateDelete(ctx context.Context, obj runtime.Object) (admission.Warnings, error) {
+// ValidateDelete implements admission.Validator so a webhook will be registered for the type MdaiIngress.
+func (v *MdaiIngressCustomValidator) ValidateDelete(_ context.Context, _ *mdaiv1.MdaiIngress) (admission.Warnings, error) {
 	return admission.Warnings{}, nil
 }
 

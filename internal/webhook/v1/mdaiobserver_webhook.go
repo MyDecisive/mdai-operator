@@ -4,8 +4,6 @@ import (
 	"context"
 	"fmt"
 
-	"k8s.io/apimachinery/pkg/runtime"
-	"sigs.k8s.io/controller-runtime/pkg/webhook"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	mdaiv1 "github.com/mydecisive/mdai-operator/api/v1"
@@ -19,7 +17,7 @@ var mdaiobserverlog = logf.Log.WithName("mdaiobserver-resource")
 
 // SetupMdaiObserverWebhookWithManager registers the webhook for MdaiObserver in the manager.
 func SetupMdaiObserverWebhookWithManager(mgr ctrl.Manager) error {
-	return ctrl.NewWebhookManagedBy(mgr).For(&mdaiv1.MdaiObserver{}).
+	return ctrl.NewWebhookManagedBy(mgr, &mdaiv1.MdaiObserver{}).
 		WithValidator(&MdaiObserverCustomValidator{}).
 		Complete()
 }
@@ -38,36 +36,24 @@ type MdaiObserverCustomValidator struct {
 	// TODO(user): Add more fields as needed for validation
 }
 
-var _ webhook.CustomValidator = &MdaiObserverCustomValidator{}
+var _ admission.Validator[*mdaiv1.MdaiObserver] = &MdaiObserverCustomValidator{}
 
-// ValidateCreate implements webhook.CustomValidator so a webhook will be registered for the type MdaiObserver.
-func (v *MdaiObserverCustomValidator) ValidateCreate(_ context.Context, obj runtime.Object) (admission.Warnings, error) {
-	mdaiobserver, ok := obj.(*mdaiv1.MdaiObserver)
-	if !ok {
-		return nil, fmt.Errorf("expected a MdaiObserver object but got %T", obj)
-	}
+// ValidateCreate implements admission.Validator so a webhook will be registered for the type MdaiObserver.
+func (v *MdaiObserverCustomValidator) ValidateCreate(_ context.Context, mdaiobserver *mdaiv1.MdaiObserver) (admission.Warnings, error) {
 	mdaiobserverlog.Info("Validation for MdaiObserver upon creation", "name", mdaiobserver.GetName())
 
 	return v.validateObserversAndObserverResources(mdaiobserver)
 }
 
-// ValidateUpdate implements webhook.CustomValidator so a webhook will be registered for the type MdaiObserver.
-func (v *MdaiObserverCustomValidator) ValidateUpdate(_ context.Context, _, newObj runtime.Object) (admission.Warnings, error) {
-	mdaiobserver, ok := newObj.(*mdaiv1.MdaiObserver)
-	if !ok {
-		return nil, fmt.Errorf("expected a MdaiObserver object for the newObj but got %T", newObj)
-	}
+// ValidateUpdate implements admission.Validator so a webhook will be registered for the type MdaiObserver.
+func (v *MdaiObserverCustomValidator) ValidateUpdate(_ context.Context, _, mdaiobserver *mdaiv1.MdaiObserver) (admission.Warnings, error) {
 	mdaiobserverlog.Info("Validation for MdaiObserver upon update", "name", mdaiobserver.GetName())
 
 	return v.validateObserversAndObserverResources(mdaiobserver)
 }
 
-// ValidateDelete implements webhook.CustomValidator so a webhook will be registered for the type MdaiObserver.
-func (*MdaiObserverCustomValidator) ValidateDelete(_ context.Context, obj runtime.Object) (admission.Warnings, error) {
-	mdaiobserver, ok := obj.(*mdaiv1.MdaiObserver)
-	if !ok {
-		return nil, fmt.Errorf("expected a MdaiObserver object but got %T", obj)
-	}
+// ValidateDelete implements admission.Validator so a webhook will be registered for the type MdaiObserver.
+func (*MdaiObserverCustomValidator) ValidateDelete(_ context.Context, mdaiobserver *mdaiv1.MdaiObserver) (admission.Warnings, error) {
 	mdaiobserverlog.Info("Validation for MdaiObserver upon deletion", "name", mdaiobserver.GetName())
 
 	// TODO(user): fill in your validation logic upon object deletion.

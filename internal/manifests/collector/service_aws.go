@@ -5,7 +5,6 @@ import (
 	"maps"
 	"slices"
 
-	"github.com/go-logr/zapr"
 	hubv1 "github.com/mydecisive/mdai-operator/api/v1"
 	"github.com/mydecisive/mdai-operator/internal/manifests"
 	"github.com/mydecisive/mdai-operator/internal/manifests/manifestutils"
@@ -86,7 +85,6 @@ func GrpcService(params manifests.Params) (*corev1.Service, error) {
 }
 
 func NonGrpcService(params manifests.Params) (*corev1.Service, error) {
-	logrLogger := zapr.NewLogger(params.Log)
 	// we need this service for aws only
 	if params.OtelMdaiIngressComb.Otelcol.Spec.Ingress.Type != "" ||
 		params.OtelMdaiIngressComb.MdaiIngress.Spec.CloudType != hubv1.CloudProviderAws {
@@ -106,7 +104,7 @@ func NonGrpcService(params manifests.Params) (*corev1.Service, error) {
 		maps.Copy(annotations, serviceAnnotations)
 	}
 
-	ports, err := params.OtelMdaiIngressComb.Otelcol.Spec.Config.GetAllPorts(logrLogger)
+	ports, err := allPorts(params.Log, &params.OtelMdaiIngressComb.Otelcol.Spec.Config)
 	if err != nil {
 		return nil, err
 	}

@@ -7,8 +7,6 @@ import (
 	"regexp"
 	"slices"
 
-	"k8s.io/apimachinery/pkg/runtime"
-	"sigs.k8s.io/controller-runtime/pkg/webhook"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	mdaiv1 "github.com/mydecisive/mdai-operator/api/v1"
@@ -17,7 +15,7 @@ import (
 )
 
 var (
-	_ webhook.CustomValidator = &MdaiCollectorCustomValidator{}
+	_ admission.Validator[*mdaiv1.MdaiCollector] = &MdaiCollectorCustomValidator{}
 	// nolint:unused
 	// log is for logging in this package.
 	mdaicollectorlog = logf.Log.WithName("mdaicollector-resource") // Regex explanation:
@@ -36,7 +34,7 @@ var (
 
 // SetupMdaiCollectorWebhookWithManager registers the webhook for MdaiCollector in the manager.
 func SetupMdaiCollectorWebhookWithManager(mgr ctrl.Manager) error {
-	return ctrl.NewWebhookManagedBy(mgr).For(&mdaiv1.MdaiCollector{}).
+	return ctrl.NewWebhookManagedBy(mgr, &mdaiv1.MdaiCollector{}).
 		WithValidator(&MdaiCollectorCustomValidator{}).
 		Complete()
 }
@@ -55,34 +53,22 @@ type MdaiCollectorCustomValidator struct {
 	// TODO(user): Add more fields as needed for validation
 }
 
-// ValidateCreate implements webhook.CustomValidator so a webhook will be registered for the type MdaiCollector.
-func (v *MdaiCollectorCustomValidator) ValidateCreate(_ context.Context, obj runtime.Object) (admission.Warnings, error) {
-	mdaicollector, ok := obj.(*mdaiv1.MdaiCollector)
-	if !ok {
-		return nil, fmt.Errorf("expected a MdaiCollector object but got %T", obj)
-	}
+// ValidateCreate implements admission.Validator so a webhook will be registered for the type MdaiCollector.
+func (v *MdaiCollectorCustomValidator) ValidateCreate(_ context.Context, mdaicollector *mdaiv1.MdaiCollector) (admission.Warnings, error) {
 	mdaicollectorlog.Info("Validation for MdaiCollector upon creation", "name", mdaicollector.GetName())
 
 	return v.Validate(mdaicollector)
 }
 
-// ValidateUpdate implements webhook.CustomValidator so a webhook will be registered for the type MdaiCollector.
-func (v *MdaiCollectorCustomValidator) ValidateUpdate(_ context.Context, _, newObj runtime.Object) (admission.Warnings, error) {
-	mdaicollector, ok := newObj.(*mdaiv1.MdaiCollector)
-	if !ok {
-		return nil, fmt.Errorf("expected a MdaiCollector object for the newObj but got %T", newObj)
-	}
+// ValidateUpdate implements admission.Validator so a webhook will be registered for the type MdaiCollector.
+func (v *MdaiCollectorCustomValidator) ValidateUpdate(_ context.Context, _, mdaicollector *mdaiv1.MdaiCollector) (admission.Warnings, error) {
 	mdaicollectorlog.Info("Validation for MdaiCollector upon update", "name", mdaicollector.GetName())
 
 	return v.Validate(mdaicollector)
 }
 
-// ValidateDelete implements webhook.CustomValidator so a webhook will be registered for the type MdaiCollector.
-func (v *MdaiCollectorCustomValidator) ValidateDelete(_ context.Context, obj runtime.Object) (admission.Warnings, error) {
-	mdaicollector, ok := obj.(*mdaiv1.MdaiCollector)
-	if !ok {
-		return nil, fmt.Errorf("expected a MdaiCollector object but got %T", obj)
-	}
+// ValidateDelete implements admission.Validator so a webhook will be registered for the type MdaiCollector.
+func (v *MdaiCollectorCustomValidator) ValidateDelete(_ context.Context, mdaicollector *mdaiv1.MdaiCollector) (admission.Warnings, error) {
 	mdaicollectorlog.Info("Validation for MdaiCollector upon deletion", "name", mdaicollector.GetName())
 
 	return v.Validate(mdaicollector)
