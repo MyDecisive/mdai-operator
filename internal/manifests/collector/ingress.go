@@ -22,7 +22,7 @@ func Ingress(params manifests.Params) (*networkingv1.Ingress, error) {
 }
 
 func servicePortsFromCfg(logger *zap.Logger, otelcol v1beta1.OpenTelemetryCollector) ([]corev1.ServicePort, error) {
-	ports, err := mdaiv1.GetReceiverPorts(logger, &otelcol.Spec.Config)
+	ports, err := receiverPorts(logger, &otelcol.Spec.Config)
 	if err != nil {
 		logger.Error("couldn't build the ingress for this instance", zap.Error(err))
 		return nil, err

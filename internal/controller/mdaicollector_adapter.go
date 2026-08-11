@@ -19,7 +19,6 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
-	"k8s.io/client-go/tools/record"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/yaml"
@@ -87,7 +86,6 @@ type MdaiCollectorAdapter struct {
 	collectorCR *mdaiv1.MdaiCollector
 	logger      logr.Logger
 	client      client.Client
-	recorder    record.EventRecorder
 	scheme      *runtime.Scheme
 }
 
@@ -95,14 +93,12 @@ func NewMdaiCollectorAdapter(
 	cr *mdaiv1.MdaiCollector,
 	log logr.Logger,
 	k8sClient client.Client,
-	recorder record.EventRecorder,
 	scheme *runtime.Scheme,
 ) *MdaiCollectorAdapter {
 	return &MdaiCollectorAdapter{
 		collectorCR: cr,
 		logger:      log,
 		client:      k8sClient,
-		recorder:    recorder,
 		scheme:      scheme,
 	}
 }

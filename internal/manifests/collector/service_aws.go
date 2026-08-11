@@ -104,7 +104,7 @@ func NonGrpcService(params manifests.Params) (*corev1.Service, error) {
 		maps.Copy(annotations, serviceAnnotations)
 	}
 
-	ports, err := hubv1.GetAllPorts(params.Log, &params.OtelMdaiIngressComb.Otelcol.Spec.Config)
+	ports, err := allPorts(params.Log, &params.OtelMdaiIngressComb.Otelcol.Spec.Config)
 	if err != nil {
 		return nil, err
 	}
