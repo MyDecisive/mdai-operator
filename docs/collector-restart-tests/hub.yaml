@@ -1,0 +1,19 @@
+apiVersion: hub.mydecisive.ai/v1
+kind: MdaiHub
+metadata:
+  name: restart-test
+  namespace: mdai
+spec:
+  variables:
+    - key: sampled
+      type: manual
+      dataType: int
+      default: 100
+      serializeAs:
+        - name: SAMPLED_RATE
+    - key: other
+      type: manual
+      dataType: int
+      default: 1
+      serializeAs:
+        - name: OTHER_RATE

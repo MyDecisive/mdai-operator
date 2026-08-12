@@ -1,0 +1,52 @@
+# Anti-pattern fixture: a `map` dataType variable whose values flow into a
+# typed processor field (batch.send_batch_size: int).
+#
+# Before Path A: rendered as `send_batch_size: 100` (unquoted, parsed as int).
+# After Path A:  rendered as `send_batch_size: "100"` (quoted, parsed as string).
+# Collector decoder has `confmap.WeaklyTypedInput: false`, so the int-typed
+# field rejects the string. Collector is expected to crashloop with a clear
+# decode error. The fix for the user is to switch to Pattern 3 (string+JSON)
+# or to a sibling scalar variable.
+apiVersion: hub.mydecisive.ai/v1
+kind: MdaiHub
+metadata:
+  name: injection-antipattern
+  namespace: mdai
+spec:
+  variables:
+    - key: batch_config_legacy
+      type: manual
+      dataType: map
+      default:
+        send_batch_size: "100"
+        timeout: "15s"
+      serializeAs:
+        - name: BATCH_CONFIG_LEGACY
+---
+apiVersion: opentelemetry.io/v1beta1
+kind: OpenTelemetryCollector
+metadata:
+  name: injection-antipattern
+  namespace: mdai
+  labels:
+    mydecisive.ai/hub-name: injection-antipattern
+spec:
+  envFrom:
+    - configMapRef:
+        name: injection-antipattern-variables
+  config:
+    receivers:
+      otlp:
+        protocols:
+          grpc:
+            endpoint: 0.0.0.0:4317
+    processors:
+      batch: ${env:BATCH_CONFIG_LEGACY}
+    exporters:
+      debug: {}
+    service:
+      pipelines:
+        traces:
+          receivers: [otlp]
+          processors: [batch]
+          exporters: [debug]

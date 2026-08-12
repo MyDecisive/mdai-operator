@@ -1,0 +1,43 @@
+apiVersion: opentelemetry.io/v1beta1
+kind: OpenTelemetryCollector
+metadata:
+  name: wildcard
+  namespace: mdai
+  labels:
+    mydecisive.ai/hub-name: restart-test
+spec:
+  # RATE_PREFIX lives in spec.env, which the operator's static parser
+  # deliberately does NOT inspect — only Spec.Config.Yaml() is scanned for
+  # ${env:NAME} refs. So from the operator's perspective the only resolvable
+  # ref is RATE_PREFIX itself (which is never in the env-CM and never changes),
+  # while the indirection `${env:${env:RATE_PREFIX}_RATE:-100}` is an extra
+  # `${env:` occurrence the strict regex can't match → wildcard fallback fires.
+  # The `:-100` default keeps the pod healthy regardless of whether SAMPLED_RATE
+  # is set, so the deployment-revision check is deterministic.
+  env:
+    - name: RATE_PREFIX
+      value: SAMPLED
+  envFrom:
+    - configMapRef:
+        name: restart-test-variables
+  config:
+    receivers:
+      otlp:
+        protocols:
+          grpc:
+            endpoint: 0.0.0.0:4317
+    processors:
+      attributes:
+        actions:
+          - key: rate
+            value: "${env:${env:RATE_PREFIX}_RATE:-100}"
+            action: insert
+    exporters:
+      debug:
+        verbosity: detailed
+    service:
+      pipelines:
+        traces:
+          receivers: [otlp]
+          processors: [attributes]
+          exporters: [debug]

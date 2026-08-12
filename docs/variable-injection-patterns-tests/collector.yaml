@@ -1,0 +1,50 @@
+apiVersion: opentelemetry.io/v1beta1
+kind: OpenTelemetryCollector
+metadata:
+  name: injection-test
+  namespace: mdai
+  labels:
+    mydecisive.ai/hub-name: injection-test
+spec:
+  envFrom:
+    - configMapRef:
+        name: injection-test-variables
+  config:
+    receivers:
+      otlp:
+        protocols:
+          grpc:
+            endpoint: 0.0.0.0:4317
+          http:
+            endpoint: 0.0.0.0:4318
+    processors:
+      # Pattern 1a — scalar variable substituted into a typed float field.
+      probabilistic_sampler:
+        sampling_percentage: ${env:SAMPLING_RATE}
+
+      # Pattern 1b — scalar variable substituted into a filter expression
+      # via a string env, with template-side quoting.
+      filter/noisy:
+        traces:
+          span:
+            - 'resource.attributes["service.name"] == "${env:NOISY_SERVICE}"'
+
+      # Pattern 3 — string-with-JSON substituted as a whole config blob into
+      # a typed mapping field. The collector's YAML parser reads the literal
+      # JSON and resolves types from JSON syntax (100 → int, "15s" → string).
+      batch: ${env:BATCH_CONFIG}
+    exporters:
+      # Pattern 2 — map dataType substituted as a YAML mapping into the
+      # exporter's headers field. All values render as strings; the leading
+      # zero on X-Tenant-Id must survive.
+      otlp_http/tenant:
+        endpoint: http://example.invalid:4318
+        headers: ${env:TENANT_HEADERS}
+      debug:
+        verbosity: detailed
+    service:
+      pipelines:
+        traces:
+          receivers: [otlp]
+          processors: [filter/noisy, probabilistic_sampler, batch]
+          exporters: [debug, otlp_http/tenant]
