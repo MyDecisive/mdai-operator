@@ -10,7 +10,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/apimachinery/pkg/util/validation/field"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 )
 
@@ -156,8 +155,8 @@ func createSampleMdaiHub() *mdaiv1.MdaiHub {
 				{
 					Name: "automation-1",
 					When: mdaiv1.When{
-						AlertName: ptr.To("logBytesOutTooHighBySvc"),
-						Status:    ptr.To("firing"),
+						AlertName: new("logBytesOutTooHighBySvc"),
+						Status:    new("firing"),
 					},
 					Then: []mdaiv1.Action{
 						{
@@ -419,7 +418,7 @@ var _ = Describe("MdaiHub Webhook", func() {
 		It("Should fail if updateType is set without variableUpdated", func() {
 			By("setting updateType but leaving variableUpdated empty")
 			obj := createSampleMdaiHub()
-			obj.Spec.Rules[0].When.UpdateType = ptr.To("added")
+			obj.Spec.Rules[0].When.UpdateType = new("added")
 
 			warnings, err := validator.ValidateCreate(ctx, obj)
 			Expect(err).To(HaveOccurred())
@@ -431,8 +430,8 @@ var _ = Describe("MdaiHub Webhook", func() {
 		It("Should fail if variableUpdated is not defined in spec.variables", func() {
 			By("referencing an unknown variable in when.variableUpdated")
 			obj := createSampleMdaiHub()
-			obj.Spec.Rules[0].When.VariableUpdated = ptr.To("does_not_exist")
-			obj.Spec.Rules[0].When.UpdateType = ptr.To("set")
+			obj.Spec.Rules[0].When.VariableUpdated = new("does_not_exist")
+			obj.Spec.Rules[0].When.UpdateType = new("set")
 
 			warnings, err := validator.ValidateCreate(ctx, obj)
 			Expect(err).To(HaveOccurred())
@@ -444,9 +443,9 @@ var _ = Describe("MdaiHub Webhook", func() {
 		It("Should fail if alertName is not defined in spec.alerts", func() {
 			By("referencing an unknown alert in when.alertName")
 			obj := createSampleMdaiHub()
-			obj.Spec.Rules[0].When.AlertName = ptr.To("UnknownAlert")
+			obj.Spec.Rules[0].When.AlertName = new("UnknownAlert")
 			// keep status to trigger the existence check
-			obj.Spec.Rules[0].When.Status = ptr.To("firing")
+			obj.Spec.Rules[0].When.Status = new("firing")
 
 			warnings, err := validator.ValidateCreate(ctx, obj)
 			Expect(err).To(HaveOccurred())
@@ -520,7 +519,7 @@ var _ = Describe("MdaiHub Webhook", func() {
 			By("setting url to an empty string")
 			obj := createSampleMdaiHub()
 			obj.Spec.Rules[0].Then = []mdaiv1.Action{{CallWebhook: &mdaiv1.CallWebhookAction{}}}
-			obj.Spec.Rules[0].Then[0].CallWebhook.URL.Value = ptr.To("")
+			obj.Spec.Rules[0].Then[0].CallWebhook.URL.Value = new("")
 
 			warnings, err := validator.ValidateCreate(ctx, obj)
 			Expect(err).To(HaveOccurred())
@@ -533,7 +532,7 @@ var _ = Describe("MdaiHub Webhook", func() {
 			By("setting url to whitespace")
 			obj := createSampleMdaiHub()
 			obj.Spec.Rules[0].Then = []mdaiv1.Action{{CallWebhook: &mdaiv1.CallWebhookAction{}}}
-			obj.Spec.Rules[0].Then[0].CallWebhook.URL.Value = ptr.To("   \t  ")
+			obj.Spec.Rules[0].Then[0].CallWebhook.URL.Value = new("   \t  ")
 
 			warnings, err := validator.ValidateCreate(ctx, obj)
 			Expect(err).To(HaveOccurred())
@@ -546,7 +545,7 @@ var _ = Describe("MdaiHub Webhook", func() {
 			By("using a non-absolute/non-http URL")
 			obj := createSampleMdaiHub()
 			obj.Spec.Rules[0].Then = []mdaiv1.Action{{CallWebhook: &mdaiv1.CallWebhookAction{}}}
-			obj.Spec.Rules[0].Then[0].CallWebhook.URL.Value = ptr.To("example.com/hook") // missing scheme
+			obj.Spec.Rules[0].Then[0].CallWebhook.URL.Value = new("example.com/hook") // missing scheme
 
 			warnings, err := validator.ValidateCreate(ctx, obj)
 			Expect(err).To(HaveOccurred())
@@ -559,7 +558,7 @@ var _ = Describe("MdaiHub Webhook", func() {
 			By("providing a proper https URL and a supported method")
 			obj := createSampleMdaiHub()
 			obj.Spec.Rules[0].Then = []mdaiv1.Action{{CallWebhook: &mdaiv1.CallWebhookAction{}}}
-			obj.Spec.Rules[0].Then[0].CallWebhook.URL.Value = ptr.To("https://hooks.example.com/x")
+			obj.Spec.Rules[0].Then[0].CallWebhook.URL.Value = new("https://hooks.example.com/x")
 			obj.Spec.Rules[0].Then[0].CallWebhook.Method = "PUT" // allowed
 
 			warnings, err := validator.ValidateCreate(ctx, obj)
@@ -571,7 +570,7 @@ var _ = Describe("MdaiHub Webhook", func() {
 			By("supplying a valid URL without method")
 			obj := createSampleMdaiHub()
 			obj.Spec.Rules[0].Then = []mdaiv1.Action{{CallWebhook: &mdaiv1.CallWebhookAction{}}}
-			obj.Spec.Rules[0].Then[0].CallWebhook.URL.Value = ptr.To("http://example.com/hook")
+			obj.Spec.Rules[0].Then[0].CallWebhook.URL.Value = new("http://example.com/hook")
 
 			warnings, err := validator.ValidateCreate(ctx, obj)
 			Expect(err).ToNot(HaveOccurred())
@@ -698,7 +697,7 @@ var _ = Describe("MdaiHub Webhook", func() {
 				AddToMap: &mdaiv1.MapAction{
 					Map:   "map",
 					Key:   "new-key",
-					Value: ptr.To("new-value"),
+					Value: new("new-value"),
 				},
 			}
 			knownVars := map[string]struct{}{
@@ -727,7 +726,7 @@ var _ = Describe("MdaiHub Webhook", func() {
 		It("should pass validation when a single 'callWebhook' action is specified", func() {
 			action := mdaiv1.Action{
 				CallWebhook: &mdaiv1.CallWebhookAction{
-					URL:    mdaiv1.StringOrFrom{Value: ptr.To("http://example.com/webhook")},
+					URL:    mdaiv1.StringOrFrom{Value: new("http://example.com/webhook")},
 					Method: "POST",
 				},
 			}
@@ -763,7 +762,7 @@ var _ = Describe("MdaiHub Webhook", func() {
 			action := &mdaiv1.MapAction{
 				Map:   "unknown_map",
 				Key:   "some_key",
-				Value: ptr.To("some_value"),
+				Value: new("some_value"),
 			}
 			path := actionPath.Child("addToMap")
 			errs := validateMapAction(path, action, knownVarKeys)
@@ -778,7 +777,7 @@ var _ = Describe("MdaiHub Webhook", func() {
 				RemoveFromMap: &mdaiv1.MapAction{
 					Map:   "map_1",
 					Key:   "some-key",
-					Value: ptr.To("some-value"),
+					Value: new("some-value"),
 				},
 			}
 			path := actionPath.Child("removeFromMap")
@@ -794,7 +793,7 @@ var _ = Describe("MdaiHub Webhook", func() {
 						OpAMPEndpoint:     "http://opamp.example.com",
 						Source: mdaiv1.MdaiReplaySourceConfiguration{
 							AWSConfig: &mdaiv1.MdaiReplayAwsConfig{
-								AWSAccessKeySecret: ptr.To("secret"),
+								AWSAccessKeySecret: new("secret"),
 							},
 							S3: &mdaiv1.MdaiReplayS3Configuration{
 								S3Region:    "region",
@@ -825,7 +824,7 @@ var _ = Describe("MdaiHub Webhook", func() {
 						StatusVariableRef: "string_1",
 						Source: mdaiv1.MdaiReplaySourceConfiguration{
 							AWSConfig: &mdaiv1.MdaiReplayAwsConfig{
-								AWSAccessKeySecret: ptr.To("secret"),
+								AWSAccessKeySecret: new("secret"),
 							},
 							S3: &mdaiv1.MdaiReplayS3Configuration{
 								S3Region:    "region",
@@ -860,7 +859,7 @@ var _ = Describe("MdaiHub Webhook", func() {
 						OpAMPEndpoint:     "http://opamp.example.com",
 						Source: mdaiv1.MdaiReplaySourceConfiguration{
 							AWSConfig: &mdaiv1.MdaiReplayAwsConfig{
-								AWSAccessKeySecret: ptr.To("secret"),
+								AWSAccessKeySecret: new("secret"),
 							},
 							S3: &mdaiv1.MdaiReplayS3Configuration{
 								S3Region:    "region",
@@ -1012,7 +1011,7 @@ var _ = Describe("MdaiHub Webhook", func() {
 					},
 					Method: "PUT", // anything non-POST should fail when payloadTemplate is present
 					PayloadTemplate: &mdaiv1.StringOrFrom{
-						Value: ptr.To("{{ .metadata.name }}"),
+						Value: new("{{ .metadata.name }}"),
 					},
 				},
 			}
@@ -1040,7 +1039,7 @@ var _ = Describe("MdaiHub Webhook", func() {
 					},
 					Method: "POST",
 					PayloadTemplate: &mdaiv1.StringOrFrom{
-						Value: ptr.To(`{"ok":true}`),
+						Value: new(`{"ok":true}`),
 					},
 				},
 			}
@@ -1060,7 +1059,7 @@ var _ = Describe("MdaiHub Webhook", func() {
 					},
 					// Method empty on purpose
 					PayloadTemplate: &mdaiv1.StringOrFrom{
-						Value: ptr.To(`{"ok":true}`),
+						Value: new(`{"ok":true}`),
 					},
 				},
 			}
@@ -1081,7 +1080,7 @@ var _ = Describe("MdaiHub Webhook", func() {
 					Method:      "POST",
 					TemplateRef: mdaiv1.TemplateRefSlack,
 					PayloadTemplate: &mdaiv1.StringOrFrom{
-						Value: ptr.To("{{ .metadata.name }}"),
+						Value: new("{{ .metadata.name }}"),
 					},
 				},
 			}

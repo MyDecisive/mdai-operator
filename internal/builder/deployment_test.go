@@ -6,7 +6,6 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/utils/ptr"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/stretchr/testify/require"
@@ -55,7 +54,7 @@ func TestDeploymentBuilderHelpers(t *testing.T) {
 					Selector: &metav1.LabelSelector{
 						MatchLabels: map[string]string{"sel": "match"},
 					},
-					Replicas: ptr.To(int32(2)),
+					Replicas: new(int32(2)),
 					Template: corev1.PodTemplateSpec{
 						ObjectMeta: metav1.ObjectMeta{
 							Labels:      map[string]string{"pod": "demo"},

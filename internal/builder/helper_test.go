@@ -7,7 +7,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
-	"k8s.io/utils/ptr"
 )
 
 const (
@@ -24,7 +23,7 @@ const (
 	hash                        = "0123456789abcdefghijklmnopqrstuvwxyz"
 )
 
-var awsAccessKeySecret = ptr.To("aws-access-key")
+var awsAccessKeySecret = new("aws-access-key")
 
 var cmpContainerOpts = cmp.Options{
 	cmpopts.EquateEmpty(),
@@ -63,9 +62,9 @@ func wantContainerBase() corev1.Container {
 		},
 		SecurityContext: &corev1.SecurityContext{
 			SeccompProfile:           &corev1.SeccompProfile{Type: corev1.SeccompProfileTypeRuntimeDefault},
-			AllowPrivilegeEscalation: ptr.To(false),
+			AllowPrivilegeEscalation: new(false),
 			Capabilities:             &corev1.Capabilities{Drop: []corev1.Capability{"ALL"}},
-			RunAsNonRoot:             ptr.To(true),
+			RunAsNonRoot:             new(true),
 		},
 	}
 }
@@ -92,9 +91,9 @@ func buildContainerWithBuilder(awsSecret *string) corev1.Container {
 		}).
 		WithSecurityContext(&corev1.SecurityContext{
 			SeccompProfile:           &corev1.SeccompProfile{Type: corev1.SeccompProfileTypeRuntimeDefault},
-			AllowPrivilegeEscalation: ptr.To(false),
+			AllowPrivilegeEscalation: new(false),
 			Capabilities:             &corev1.Capabilities{Drop: []corev1.Capability{"ALL"}},
-			RunAsNonRoot:             ptr.To(true),
+			RunAsNonRoot:             new(true),
 		}).
 		WithAWSSecret(awsSecret).
 		WithEnvFrom(corev1.EnvFromSource{
@@ -157,7 +156,7 @@ func wantDeploymentBase(container corev1.Container) *appsv1.Deployment {
 	a.Labels["app"] = mdaiCollectorDeploymentName
 	a.Labels[hubNameLabel] = hubName
 
-	a.Spec.Replicas = ptr.To(int32(1))
+	a.Spec.Replicas = new(int32(1))
 	if a.Spec.Selector == nil {
 		a.Spec.Selector = &metav1.LabelSelector{}
 	}

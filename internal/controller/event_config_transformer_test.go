@@ -9,13 +9,12 @@ import (
 	mdaiv1 "github.com/mydecisive/mdai-operator/api/v1"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"k8s.io/utils/ptr"
 )
 
 func TestTransformWhenToTrigger_AlertTrigger(t *testing.T) {
 	when := &mdaiv1.When{
-		AlertName: ptr.To("some-alert-name"),
-		Status:    ptr.To("firing"),
+		AlertName: new("some-alert-name"),
+		Status:    new("firing"),
 	}
 
 	trigger, err := transformWhenToTrigger(when)
@@ -31,8 +30,8 @@ func TestTransformWhenToTrigger_AlertTrigger(t *testing.T) {
 
 func TestTransformWhenToTrigger_AlertTrigger_EmptyStatus(t *testing.T) {
 	when := &mdaiv1.When{
-		AlertName: ptr.To("some-alert-name"),
-		Status:    ptr.To(""), // Empty string status
+		AlertName: new("some-alert-name"),
+		Status:    new(""), // Empty string status
 	}
 
 	trigger, err := transformWhenToTrigger(when)
@@ -48,8 +47,8 @@ func TestTransformWhenToTrigger_AlertTrigger_EmptyStatus(t *testing.T) {
 
 func TestTransformWhenToTrigger_VariableTrigger(t *testing.T) {
 	when := &mdaiv1.When{
-		VariableUpdated: ptr.To("some-variable-name"),
-		UpdateType:      ptr.To("any"),
+		VariableUpdated: new("some-variable-name"),
+		UpdateType:      new("any"),
 	}
 
 	trigger, err := transformWhenToTrigger(when)
@@ -76,7 +75,7 @@ func TestTransformWhenToTrigger_VariableTrigger_EmptyUpdateType(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			when := &mdaiv1.When{
-				VariableUpdated: ptr.To("some-variable-name"),
+				VariableUpdated: new("some-variable-name"),
 				UpdateType:      tc.updateType,
 			}
 
@@ -102,8 +101,8 @@ func TestTransformWhenToTrigger_NilInput(t *testing.T) {
 
 func TestTransformWhenToTrigger_BothAlertAndVariableSpecified(t *testing.T) {
 	when := &mdaiv1.When{
-		AlertName:       ptr.To("some-alert"),
-		VariableUpdated: ptr.To("some-variable"),
+		AlertName:       new("some-alert"),
+		VariableUpdated: new("some-variable"),
 	}
 
 	trigger, err := transformWhenToTrigger(when)

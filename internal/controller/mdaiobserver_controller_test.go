@@ -16,7 +16,6 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/record"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -116,16 +115,16 @@ func observerFakeClient(scheme *runtime.Scheme, cr *hubv1.MdaiObserver) client.W
 }
 
 func TestEnsureObserversSynchronized_WithObservers(t *testing.T) {
-	ctx := context.TODO()
+	ctx := t.Context()
 	scheme := createTestScheme()
 
 	observer := hubv1.Observer{
 		Name:                    "observer4",
 		LabelResourceAttributes: []string{"service.name", "team", "region"},
-		CountMetricName:         ptr.To("mdai_observer_four_count_total"),
-		BytesMetricName:         ptr.To("mdai_observer_four_bytes_total"),
+		CountMetricName:         new("mdai_observer_four_count_total"),
+		BytesMetricName:         new("mdai_observer_four_bytes_total"),
 		Filter: &hubv1.ObserverFilter{
-			ErrorMode: ptr.To("ignore"),
+			ErrorMode: new("ignore"),
 			Logs: &hubv1.ObserverLogsFilter{
 				LogRecord: []string{`attributes["log_level"] == "INFO"`},
 			},
@@ -199,7 +198,7 @@ func TestEnsureObserversSynchronized_WithObservers(t *testing.T) {
 }
 
 func TestEnsureObserversSynchronized_WithGreptimeDBObserverCopiesSecret(t *testing.T) {
-	ctx := context.TODO()
+	ctx := t.Context()
 	scheme := createTestScheme()
 	t.Setenv(PodNamespaceEnv, "operator-system")
 
@@ -281,7 +280,7 @@ func TestEnsureObserversSynchronized_WithGreptimeDBObserverCopiesSecret(t *testi
 }
 
 func TestEnsureObserversSynchronized_WithGreptimeDBObserverSkipsSecretCopyInOperatorNamespace(t *testing.T) {
-	ctx := context.TODO()
+	ctx := t.Context()
 	scheme := createTestScheme()
 	t.Setenv(PodNamespaceEnv, "default")
 

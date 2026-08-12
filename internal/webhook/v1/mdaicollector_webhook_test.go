@@ -5,7 +5,6 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 )
 
@@ -21,7 +20,7 @@ func createTestMdaiCollector() *mdaiv1.MdaiCollector {
 		},
 		Spec: mdaiv1.MdaiCollectorSpec{
 			AWSConfig: &mdaiv1.AWSConfig{
-				AWSAccessKeySecret: ptr.To("foobar"),
+				AWSAccessKeySecret: new("foobar"),
 			},
 			Logs: &mdaiv1.LogsConfig{
 				S3: &mdaiv1.S3LogsConfig{
@@ -144,7 +143,7 @@ var _ = Describe("MdaiCollector Webhook", func() {
 			By("simulating a valid update scenario")
 			oldObj := createTestMdaiCollector()
 			newObj := createTestMdaiCollector()
-			newObj.Spec.AWSConfig.AWSAccessKeySecret = ptr.To("barbaz")
+			newObj.Spec.AWSConfig.AWSAccessKeySecret = new("barbaz")
 			warnings, err := validator.ValidateUpdate(ctx, oldObj, newObj)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(warnings).To(Equal(admission.Warnings{}))

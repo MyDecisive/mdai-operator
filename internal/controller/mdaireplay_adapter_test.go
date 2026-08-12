@@ -2,14 +2,12 @@ package controller
 
 import (
 	"bytes"
-	"context"
 	"net/http"
 	"net/http/httptest"
 	"slices"
 	"testing"
 
 	"github.com/mydecisive/mdai-operator/internal/builder"
-	"k8s.io/utils/ptr"
 
 	"github.com/go-logr/logr"
 	mdaiv1 "github.com/mydecisive/mdai-operator/api/v1"
@@ -113,7 +111,7 @@ func TestEnsureDeletionProcessed(t *testing.T) {
 				nil,
 			)
 
-			result, err := adapter.ensureDeletionProcessed(context.Background())
+			result, err := adapter.ensureDeletionProcessed(t.Context())
 
 			if tt.expectContinue {
 				assert.Equal(t, result, ContinueOperationResult())
@@ -183,7 +181,7 @@ func TestEnsureFinalizerInitialized(t *testing.T) {
 				nil,
 			)
 
-			result, err := adapter.ensureFinalizerInitialized(context.Background())
+			result, err := adapter.ensureFinalizerInitialized(t.Context())
 
 			require.NoError(t, err)
 			if tt.expectContinue {
@@ -249,7 +247,7 @@ func TestEnsureStatusInitialized(t *testing.T) {
 				nil,
 			)
 
-			result, err := adapter.ensureStatusInitialized(context.Background())
+			result, err := adapter.ensureStatusInitialized(t.Context())
 
 			require.NoError(t, err)
 			if tt.expectContinue {
@@ -595,7 +593,7 @@ func TestAugmentDeploymentWithValues(t *testing.T) {
 			depName:    "test-collector-secret",
 			image:      "custom-image:v1",
 			configHash: "def456",
-			awsSecret:  ptr.To("aws-creds"),
+			awsSecret:  new("aws-creds"),
 			validate: func(t *testing.T, deployment *appsv1.Deployment) {
 				t.Helper()
 				container := deployment.Spec.Template.Spec.Containers[0]
@@ -782,12 +780,13 @@ func TestDeleteReplayFinalizer(t *testing.T) {
 				nil,
 			)
 
-			err := adapter.deleteFinalizer(context.Background(), cr, tt.finalizerToDelete)
+			ctx := t.Context()
+			err := adapter.deleteFinalizer(ctx, cr, tt.finalizerToDelete)
 			require.NoError(t, err)
 
 			// Fetch the updated object
 			updated := &mdaiv1.MdaiReplay{}
-			err = k8sClient.Get(context.Background(), types.NamespacedName{
+			err = k8sClient.Get(ctx, types.NamespacedName{
 				Name:      cr.Name,
 				Namespace: cr.Namespace,
 			}, updated)
@@ -932,7 +931,7 @@ otelcol_exporter_queue_size 100.0
 				func(_, _ string) string { return server.URL + "/metrics" },
 			)
 
-			state, err := adapter.finalize(context.Background())
+			state, err := adapter.finalize(t.Context())
 
 			if tt.expectError {
 				require.Error(t, err)
@@ -986,7 +985,8 @@ func TestEnsureReplayStatusSetToDone(t *testing.T) {
 				nil,
 			)
 
-			result, err := adapter.ensureStatusSetToDone(context.Background())
+			ctx := t.Context()
+			result, err := adapter.ensureStatusSetToDone(ctx)
 
 			require.NoError(t, err)
 			if tt.expectContinue {
@@ -995,7 +995,7 @@ func TestEnsureReplayStatusSetToDone(t *testing.T) {
 
 			// Verify status was updated
 			updated := &mdaiv1.MdaiReplay{}
-			err = k8sClient.Get(context.Background(), types.NamespacedName{
+			err = k8sClient.Get(ctx, types.NamespacedName{
 				Name:      tt.cr.Name,
 				Namespace: tt.cr.Namespace,
 			}, updated)
@@ -1065,7 +1065,8 @@ func TestCreateOrUpdateReplayerConfigMap(t *testing.T) {
 				nil,
 			)
 
-			hash, err := adapter.createOrUpdateReplayerConfigMap(context.Background())
+			ctx := t.Context()
+			hash, err := adapter.createOrUpdateReplayerConfigMap(ctx)
 
 			if tt.expectError {
 				require.Error(t, err)
@@ -1076,7 +1077,7 @@ func TestCreateOrUpdateReplayerConfigMap(t *testing.T) {
 				// Verify ConfigMap was created
 				configMapName := adapter.getReplayerResourceName("collector-config")
 				cm := &corev1.ConfigMap{}
-				err = k8sClient.Get(context.Background(), types.NamespacedName{
+				err = k8sClient.Get(ctx, types.NamespacedName{
 					Name:      configMapName,
 					Namespace: tt.cr.Namespace,
 				}, cm)
@@ -1163,7 +1164,8 @@ func TestCreateOrUpdateReplayerDeployment(t *testing.T) {
 				nil,
 			)
 
-			err := adapter.createOrUpdateReplayerDeployment(context.Background(), tt.configHash)
+			ctx := t.Context()
+			err := adapter.createOrUpdateReplayerDeployment(ctx, tt.configHash)
 
 			if tt.expectError {
 				require.Error(t, err)
@@ -1173,7 +1175,7 @@ func TestCreateOrUpdateReplayerDeployment(t *testing.T) {
 				// Verify Deployment was created
 				deploymentName := adapter.getReplayerResourceName("collector")
 				deployment := &appsv1.Deployment{}
-				err = k8sClient.Get(context.Background(), types.NamespacedName{
+				err = k8sClient.Get(ctx, types.NamespacedName{
 					Name:      deploymentName,
 					Namespace: tt.cr.Namespace,
 				}, deployment)
@@ -1241,7 +1243,8 @@ func TestCreateOrUpdateReplayerService(t *testing.T) {
 				nil,
 			)
 
-			err := adapter.createOrUpdateReplayerService(context.Background())
+			ctx := t.Context()
+			err := adapter.createOrUpdateReplayerService(ctx)
 
 			if tt.expectError {
 				require.Error(t, err)
@@ -1251,7 +1254,7 @@ func TestCreateOrUpdateReplayerService(t *testing.T) {
 				// Verify Service was created
 				serviceName := adapter.getReplayerResourceName("service")
 				service := &corev1.Service{}
-				err = k8sClient.Get(context.Background(), types.NamespacedName{
+				err = k8sClient.Get(ctx, types.NamespacedName{
 					Name:      serviceName,
 					Namespace: tt.cr.Namespace,
 				}, service)
@@ -1377,7 +1380,7 @@ func TestEnsureSynchronized(t *testing.T) {
 					OpAMPEndpoint:     "http://opamp:4320",
 					Source: mdaiv1.MdaiReplaySourceConfiguration{
 						AWSConfig: &mdaiv1.MdaiReplayAwsConfig{
-							AWSAccessKeySecret: ptr.To("foobar-secret"),
+							AWSAccessKeySecret: new("foobar-secret"),
 						},
 						S3: &mdaiv1.MdaiReplayS3Configuration{
 							FilePrefix:  "logs/",
@@ -1411,7 +1414,8 @@ func TestEnsureSynchronized(t *testing.T) {
 				nil,
 			)
 
-			result, err := adapter.ensureSynchronized(context.Background())
+			ctx := t.Context()
+			result, err := adapter.ensureSynchronized(ctx)
 
 			if tt.expectError {
 				require.Error(t, err)
@@ -1427,7 +1431,7 @@ func TestEnsureSynchronized(t *testing.T) {
 				// Verify all resources were created
 				configMapName := adapter.getReplayerResourceName("collector-config")
 				cm := &corev1.ConfigMap{}
-				err = k8sClient.Get(context.Background(), types.NamespacedName{
+				err = k8sClient.Get(ctx, types.NamespacedName{
 					Name:      configMapName,
 					Namespace: tt.cr.Namespace,
 				}, cm)
@@ -1435,7 +1439,7 @@ func TestEnsureSynchronized(t *testing.T) {
 
 				deploymentName := adapter.getReplayerResourceName("collector")
 				deployment := &appsv1.Deployment{}
-				err = k8sClient.Get(context.Background(), types.NamespacedName{
+				err = k8sClient.Get(ctx, types.NamespacedName{
 					Name:      deploymentName,
 					Namespace: tt.cr.Namespace,
 				}, deployment)
@@ -1443,7 +1447,7 @@ func TestEnsureSynchronized(t *testing.T) {
 
 				serviceName := adapter.getReplayerResourceName("service")
 				service := &corev1.Service{}
-				err = k8sClient.Get(context.Background(), types.NamespacedName{
+				err = k8sClient.Get(ctx, types.NamespacedName{
 					Name:      serviceName,
 					Namespace: tt.cr.Namespace,
 				}, service)

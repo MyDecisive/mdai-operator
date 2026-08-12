@@ -110,14 +110,15 @@ func TestXDSReconcileUpdatesManagedProxyServicePorts(t *testing.T) {
 		XDSManager: manager,
 	}
 
-	_, err := reconciler.Reconcile(context.Background(), ctrl.Request{
+	ctx := t.Context()
+	_, err := reconciler.Reconcile(ctx, ctrl.Request{
 		NamespacedName: types.NamespacedName{Name: "gateway", Namespace: "mdai"},
 	})
 	require.NoError(t, err)
 	require.True(t, manager.called, "xDS manager should be called")
 
 	updated := &corev1.Service{}
-	require.NoError(t, cl.Get(context.Background(), types.NamespacedName{
+	require.NoError(t, cl.Get(ctx, types.NamespacedName{
 		Name:      "envoy-hub-proxy",
 		Namespace: "mdai",
 	}, updated))
@@ -203,14 +204,15 @@ func TestXDSReconcileDoesNotAddManagedPortWhenServiceAlreadyExposesSamePort(t *t
 		XDSManager: manager,
 	}
 
-	_, err := reconciler.Reconcile(context.Background(), ctrl.Request{
+	ctx := t.Context()
+	_, err := reconciler.Reconcile(ctx, ctrl.Request{
 		NamespacedName: types.NamespacedName{Name: "gateway", Namespace: "mdai"},
 	})
 	require.NoError(t, err)
 	require.True(t, manager.called, "xDS manager should be called")
 
 	updated := &corev1.Service{}
-	require.NoError(t, cl.Get(context.Background(), types.NamespacedName{
+	require.NoError(t, cl.Get(ctx, types.NamespacedName{
 		Name:      "envoy-proxy",
 		Namespace: "mdai",
 	}, updated))
@@ -283,14 +285,15 @@ func TestXDSReconcileCreatesProxyServiceFromMarkedDeployment(t *testing.T) {
 		XDSManager: manager,
 	}
 
-	_, err := reconciler.Reconcile(context.Background(), ctrl.Request{
+	ctx := t.Context()
+	_, err := reconciler.Reconcile(ctx, ctrl.Request{
 		NamespacedName: types.NamespacedName{Name: "gateway", Namespace: "mdai"},
 	})
 	require.NoError(t, err)
 	require.True(t, manager.called, "xDS manager should be called")
 
 	created := &corev1.Service{}
-	require.NoError(t, cl.Get(context.Background(), types.NamespacedName{
+	require.NoError(t, cl.Get(ctx, types.NamespacedName{
 		Name:      "envoy-hub-xds-proxy",
 		Namespace: "mdai",
 	}, created))
@@ -353,14 +356,15 @@ func TestXDSReconcileCreatesProxyServiceFromEnvWhenMissing(t *testing.T) {
 		XDSManager: manager,
 	}
 
-	_, err := reconciler.Reconcile(context.Background(), ctrl.Request{
+	ctx := t.Context()
+	_, err := reconciler.Reconcile(ctx, ctrl.Request{
 		NamespacedName: types.NamespacedName{Name: "gateway", Namespace: "mdai"},
 	})
 	require.NoError(t, err)
 	require.True(t, manager.called, "xDS manager should be called")
 
 	created := &corev1.Service{}
-	require.NoError(t, cl.Get(context.Background(), types.NamespacedName{
+	require.NoError(t, cl.Get(ctx, types.NamespacedName{
 		Name:      "envoy-hub-proxy",
 		Namespace: "mdai",
 	}, created))
@@ -443,14 +447,15 @@ func TestXDSReconcileReconcilesServicePortsWithoutEndpointReadiness(t *testing.T
 		XDSManager: manager,
 	}
 
-	_, err := reconciler.Reconcile(context.Background(), ctrl.Request{
+	ctx := t.Context()
+	_, err := reconciler.Reconcile(ctx, ctrl.Request{
 		NamespacedName: types.NamespacedName{Name: "gateway", Namespace: "mdai"},
 	})
 	require.NoError(t, err)
 	require.True(t, manager.called, "xDS manager should be called")
 
 	service := &corev1.Service{}
-	err = cl.Get(context.Background(), types.NamespacedName{Name: "envoy-hub-proxy", Namespace: "mdai"}, service)
+	err = cl.Get(ctx, types.NamespacedName{Name: "envoy-hub-proxy", Namespace: "mdai"}, service)
 	require.NoError(t, err, "service should be created even without endpoint readiness checks")
 	require.Len(t, service.Spec.Ports, 1)
 	assert.Equal(t, int32(4317), service.Spec.Ports[0].Port)
@@ -499,7 +504,8 @@ func TestXDSReconcileIgnoresCollectorsWithoutConnectionCollectorRole(t *testing.
 		XDSManager: manager,
 	}
 
-	_, err := reconciler.Reconcile(context.Background(), ctrl.Request{
+	ctx := t.Context()
+	_, err := reconciler.Reconcile(ctx, ctrl.Request{
 		NamespacedName: types.NamespacedName{Name: "gateway", Namespace: "mdai"},
 	})
 	require.NoError(t, err)
@@ -507,7 +513,7 @@ func TestXDSReconcileIgnoresCollectorsWithoutConnectionCollectorRole(t *testing.
 	assert.Empty(t, manager.collectors, "unlabeled collectors should not be included in xDS snapshot updates")
 
 	service := &corev1.Service{}
-	err = cl.Get(context.Background(), types.NamespacedName{Name: "envoy-hub-proxy", Namespace: "mdai"}, service)
+	err = cl.Get(ctx, types.NamespacedName{Name: "envoy-hub-proxy", Namespace: "mdai"}, service)
 	require.True(t, apierrors.IsNotFound(err), "proxy service should not be created when no eligible collectors exist")
 }
 
@@ -536,5 +542,5 @@ func readyEndpointSlice(serviceName, namespace string, ports ...int32) *discover
 }
 
 func ptrTo[T any](v T) *T {
-	return &v
+	return new(v)
 }

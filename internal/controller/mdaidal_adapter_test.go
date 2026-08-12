@@ -1,7 +1,6 @@
 package controller
 
 import (
-	"context"
 	"fmt"
 	"testing"
 	"time"
@@ -85,11 +84,12 @@ func TestMdaiDalAdapter_createOrUpdateConfigMap(t *testing.T) {
 
 	adapter := NewMdaiDalAdapter(dalCR, logr.Discard(), k8sClient, scheme)
 
-	err := adapter.createOrUpdateConfigMap(context.Background())
+	ctx := t.Context()
+	err := adapter.createOrUpdateConfigMap(ctx)
 	require.NoError(t, err)
 
 	cm := &corev1.ConfigMap{}
-	err = k8sClient.Get(context.Background(), types.NamespacedName{
+	err = k8sClient.Get(ctx, types.NamespacedName{
 		Name:      "test-dal-mdai-dal-config",
 		Namespace: namespace,
 	}, cm)
@@ -128,11 +128,12 @@ func TestMdaiDalAdapter_createOrUpdateService(t *testing.T) {
 	k8sClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(dalCR).Build()
 	adapter := NewMdaiDalAdapter(dalCR, logr.Discard(), k8sClient, scheme)
 
-	err := adapter.createOrUpdateService(context.Background())
+	ctx := t.Context()
+	err := adapter.createOrUpdateService(ctx)
 	require.NoError(t, err)
 
 	svc := &corev1.Service{}
-	err = k8sClient.Get(context.Background(), types.NamespacedName{
+	err = k8sClient.Get(ctx, types.NamespacedName{
 		Name:      dalName,
 		Namespace: namespace,
 	}, svc)
@@ -186,11 +187,12 @@ func TestMdaiDalAdapter_createOrUpdateDeployment(t *testing.T) {
 	k8sClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(dalCR).Build()
 	adapter := NewMdaiDalAdapter(dalCR, logr.Discard(), k8sClient, scheme)
 
-	err := adapter.createOrUpdateDeployment(context.Background())
+	ctx := t.Context()
+	err := adapter.createOrUpdateDeployment(ctx)
 	require.NoError(t, err)
 
 	dep := &appsv1.Deployment{}
-	err = k8sClient.Get(context.Background(), types.NamespacedName{
+	err = k8sClient.Get(ctx, types.NamespacedName{
 		Name:      dalName,
 		Namespace: namespace,
 	}, dep)
@@ -246,7 +248,8 @@ func TestMdaiDalAdapter_ensureDeletionProcessed(t *testing.T) {
 		k8sClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(dalCR).Build()
 
 		adapter := NewMdaiDalAdapter(dalCR, logr.Discard(), k8sClient, scheme)
-		result, err := adapter.ensureDeletionProcessed(context.Background())
+		ctx := t.Context()
+		result, err := adapter.ensureDeletionProcessed(ctx)
 
 		require.NoError(t, err)
 		assert.Equal(t, ContinueOperationResult(), result)
@@ -271,13 +274,13 @@ func TestMdaiDalAdapter_ensureDeletionProcessed(t *testing.T) {
 			Build()
 
 		adapter := NewMdaiDalAdapter(dalCR, logr.Discard(), k8sClient, scheme)
-		result, err := adapter.ensureDeletionProcessed(context.Background())
+		result, err := adapter.ensureDeletionProcessed(t.Context())
 
 		require.NoError(t, err)
 		assert.Equal(t, StopOperationResult(), result)
 
 		persisted := &mdaiv1.MdaiDal{}
-		err = k8sClient.Get(context.Background(), types.NamespacedName{
+		err = k8sClient.Get(t.Context(), types.NamespacedName{
 			Name:      "mdai-dal",
 			Namespace: "default",
 		}, persisted)
@@ -338,13 +341,14 @@ func TestMdaiDalAdapter_ensureStatusSetToDone(t *testing.T) {
 		Build()
 
 	adapter := NewMdaiDalAdapter(dalCR, logr.Discard(), k8sClient, scheme)
-	result, err := adapter.ensureStatusSetToDone(context.Background())
+	ctx := t.Context()
+	result, err := adapter.ensureStatusSetToDone(ctx)
 
 	require.NoError(t, err)
 	assert.Equal(t, ContinueOperationResult(), result)
 
 	updated := &mdaiv1.MdaiDal{}
-	require.NoError(t, k8sClient.Get(context.Background(), types.NamespacedName{
+	require.NoError(t, k8sClient.Get(ctx, types.NamespacedName{
 		Name:      dalName,
 		Namespace: namespace,
 	}, updated))
@@ -376,7 +380,7 @@ func TestMdaiDalAdapter_ensureFinalizerInitialized(t *testing.T) {
 		client := fake.NewClientBuilder().WithScheme(scheme).WithObjects(dalCR).Build()
 
 		adapter := NewMdaiDalAdapter(dalCR, logr.Discard(), client, scheme)
-		result, err := adapter.ensureFinalizerInitialized(context.Background())
+		result, err := adapter.ensureFinalizerInitialized(t.Context())
 
 		require.NoError(t, err)
 		assert.Equal(t, ContinueOperationResult(), result)
@@ -394,13 +398,14 @@ func TestMdaiDalAdapter_ensureFinalizerInitialized(t *testing.T) {
 		client := fake.NewClientBuilder().WithScheme(scheme).WithObjects(dalCR).Build()
 
 		adapter := NewMdaiDalAdapter(dalCR, logr.Discard(), client, scheme)
-		result, err := adapter.ensureFinalizerInitialized(context.Background())
+		ctx := t.Context()
+		result, err := adapter.ensureFinalizerInitialized(ctx)
 
 		require.NoError(t, err)
 		assert.Equal(t, StopOperationResult(), result)
 
 		updated := &mdaiv1.MdaiDal{}
-		require.NoError(t, client.Get(context.Background(), types.NamespacedName{
+		require.NoError(t, client.Get(t.Context(), types.NamespacedName{
 			Name:      "mdai-dal",
 			Namespace: "default",
 		}, updated))
@@ -431,7 +436,7 @@ func TestMdaiDalAdapter_ensureStatusInitialized(t *testing.T) {
 		client := fake.NewClientBuilder().WithScheme(scheme).WithStatusSubresource(dalCR).WithObjects(dalCR).Build()
 
 		adapter := NewMdaiDalAdapter(dalCR, logr.Discard(), client, scheme)
-		result, err := adapter.ensureStatusInitialized(context.Background())
+		result, err := adapter.ensureStatusInitialized(t.Context())
 
 		require.NoError(t, err)
 		assert.Equal(t, ContinueOperationResult(), result)
@@ -449,13 +454,14 @@ func TestMdaiDalAdapter_ensureStatusInitialized(t *testing.T) {
 		client := fake.NewClientBuilder().WithScheme(scheme).WithStatusSubresource(dalCR).WithObjects(dalCR).Build()
 
 		adapter := NewMdaiDalAdapter(dalCR, logr.Discard(), client, scheme)
-		result, err := adapter.ensureStatusInitialized(context.Background())
+		ctx := t.Context()
+		result, err := adapter.ensureStatusInitialized(ctx)
 
 		require.NoError(t, err)
 		assert.Equal(t, StopOperationResult(), result)
 
 		updated := &mdaiv1.MdaiDal{}
-		require.NoError(t, client.Get(context.Background(), types.NamespacedName{
+		require.NoError(t, client.Get(t.Context(), types.NamespacedName{
 			Name:      "mdai-dal",
 			Namespace: "default",
 		}, updated))
@@ -486,13 +492,14 @@ func TestMdaiDalAdapter_finalize(t *testing.T) {
 		Build()
 
 	adapter := NewMdaiDalAdapter(dalCR, logr.Discard(), client, scheme)
-	state, err := adapter.finalize(context.Background())
+	ctx := t.Context()
+	state, err := adapter.finalize(ctx)
 
 	require.NoError(t, err)
 	assert.Equal(t, ObjectModified, state)
 
 	updated := &mdaiv1.MdaiDal{}
-	require.NoError(t, client.Get(context.Background(), types.NamespacedName{
+	require.NoError(t, client.Get(ctx, types.NamespacedName{
 		Name:      "mdai-dal",
 		Namespace: "default",
 	}, updated))
@@ -517,10 +524,11 @@ func TestMdaiDalAdapter_ensureFinalizerDeleted(t *testing.T) {
 	client := fake.NewClientBuilder().WithScheme(scheme).WithObjects(dalCR).Build()
 
 	adapter := NewMdaiDalAdapter(dalCR, logr.Discard(), client, scheme)
-	require.NoError(t, adapter.ensureFinalizerDeleted(context.Background()))
+	ctx := t.Context()
+	require.NoError(t, adapter.ensureFinalizerDeleted(ctx))
 
 	updated := &mdaiv1.MdaiDal{}
-	require.NoError(t, client.Get(context.Background(), types.NamespacedName{
+	require.NoError(t, client.Get(ctx, types.NamespacedName{
 		Name:      "mdai-dal",
 		Namespace: "default",
 	}, updated))
@@ -542,7 +550,7 @@ func TestMdaiDalAdapter_deleteFinalizer_noop(t *testing.T) {
 	client := fake.NewClientBuilder().WithScheme(scheme).WithObjects(dalCR).Build()
 
 	adapter := NewMdaiDalAdapter(dalCR, logr.Discard(), client, scheme)
-	require.NoError(t, adapter.deleteFinalizer(context.Background(), dalCR, hubFinalizer))
+	require.NoError(t, adapter.deleteFinalizer(t.Context(), dalCR, hubFinalizer))
 
 	assert.Empty(t, dalCR.Finalizers)
 }
@@ -588,25 +596,26 @@ func TestMdaiDalAdapter_ensureSynchronized(t *testing.T) {
 	client := fake.NewClientBuilder().WithScheme(scheme).WithObjects(dalCR).WithStatusSubresource(dalCR).Build()
 
 	adapter := NewMdaiDalAdapter(dalCR, logr.Discard(), client, scheme)
-	result, err := adapter.ensureSynchronized(context.Background())
+	ctx := t.Context()
+	result, err := adapter.ensureSynchronized(ctx)
 
 	require.NoError(t, err)
 	assert.Equal(t, ContinueOperationResult(), result)
 
 	configMap := &corev1.ConfigMap{}
-	require.NoError(t, client.Get(context.Background(), types.NamespacedName{
+	require.NoError(t, client.Get(ctx, types.NamespacedName{
 		Name:      "mdai-dal-mdai-dal-config",
 		Namespace: "default",
 	}, configMap))
 
 	service := &corev1.Service{}
-	require.NoError(t, client.Get(context.Background(), types.NamespacedName{
+	require.NoError(t, client.Get(ctx, types.NamespacedName{
 		Name:      "mdai-dal",
 		Namespace: "default",
 	}, service))
 
 	deployment := &appsv1.Deployment{}
-	require.NoError(t, client.Get(context.Background(), types.NamespacedName{
+	require.NoError(t, client.Get(ctx, types.NamespacedName{
 		Name:      "mdai-dal",
 		Namespace: "default",
 	}, deployment))

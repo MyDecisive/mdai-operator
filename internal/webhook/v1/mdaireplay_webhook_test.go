@@ -1,10 +1,7 @@
 package v1
 
 import (
-	"context"
 	"testing"
-
-	"k8s.io/utils/ptr"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -16,7 +13,7 @@ import (
 
 func TestMdaiReplayCustomValidator_ValidateCreate(t *testing.T) {
 	validator := &MdaiReplayCustomValidator{}
-	ctx := context.Background()
+	ctx := t.Context()
 
 	tests := []struct {
 		name        string
@@ -43,7 +40,7 @@ func TestMdaiReplayCustomValidator_ValidateCreate(t *testing.T) {
 							S3Partition: hubv1.S3ReplayMinutePartition,
 						},
 						AWSConfig: &hubv1.MdaiReplayAwsConfig{
-							AWSAccessKeySecret: ptr.To("aws-secret"),
+							AWSAccessKeySecret: new("aws-secret"),
 						},
 					},
 				},
@@ -69,7 +66,7 @@ func TestMdaiReplayCustomValidator_ValidateCreate(t *testing.T) {
 							S3Partition: hubv1.S3ReplayHourPartition,
 						},
 						AWSConfig: &hubv1.MdaiReplayAwsConfig{
-							AWSAccessKeySecret: ptr.To("aws-secret"),
+							AWSAccessKeySecret: new("aws-secret"),
 						},
 					},
 				},
@@ -95,7 +92,7 @@ func TestMdaiReplayCustomValidator_ValidateCreate(t *testing.T) {
 							S3Partition: hubv1.S3ReplayMinutePartition,
 						},
 						AWSConfig: &hubv1.MdaiReplayAwsConfig{
-							AWSAccessKeySecret: ptr.To("aws-secret"),
+							AWSAccessKeySecret: new("aws-secret"),
 						},
 					},
 				},
@@ -303,7 +300,7 @@ func TestMdaiReplayCustomValidator_ValidateCreate(t *testing.T) {
 							S3Partition: "invalid-partition",
 						},
 						AWSConfig: &hubv1.MdaiReplayAwsConfig{
-							AWSAccessKeySecret: ptr.To("aws-secret"),
+							AWSAccessKeySecret: new("aws-secret"),
 						},
 					},
 				},
@@ -330,7 +327,7 @@ func TestMdaiReplayCustomValidator_ValidateCreate(t *testing.T) {
 							S3Partition: "",
 						},
 						AWSConfig: &hubv1.MdaiReplayAwsConfig{
-							AWSAccessKeySecret: ptr.To("aws-secret"),
+							AWSAccessKeySecret: new("aws-secret"),
 						},
 					},
 				},
@@ -357,7 +354,7 @@ func TestMdaiReplayCustomValidator_ValidateCreate(t *testing.T) {
 
 func TestMdaiReplayCustomValidator_ValidateUpdate(t *testing.T) {
 	validator := &MdaiReplayCustomValidator{}
-	ctx := context.Background()
+	ctx := t.Context()
 
 	validReplay := &hubv1.MdaiReplay{
 		ObjectMeta: metav1.ObjectMeta{
@@ -376,7 +373,7 @@ func TestMdaiReplayCustomValidator_ValidateUpdate(t *testing.T) {
 					S3Partition: hubv1.S3ReplayMinutePartition,
 				},
 				AWSConfig: &hubv1.MdaiReplayAwsConfig{
-					AWSAccessKeySecret: ptr.To("aws-secret"),
+					AWSAccessKeySecret: new("aws-secret"),
 				},
 			},
 		},
@@ -440,7 +437,7 @@ func TestMdaiReplayCustomValidator_ValidateUpdate(t *testing.T) {
 
 func TestMdaiReplayCustomValidator_ValidateDelete(t *testing.T) {
 	validator := &MdaiReplayCustomValidator{}
-	ctx := context.Background()
+	ctx := t.Context()
 
 	replay := &hubv1.MdaiReplay{
 		ObjectMeta: metav1.ObjectMeta{
@@ -456,7 +453,7 @@ func TestMdaiReplayCustomValidator_ValidateDelete(t *testing.T) {
 
 func TestMdaiReplayCustomValidator_ValidateCreate_WrongType(t *testing.T) {
 	validator := &MdaiReplayCustomValidator{}
-	ctx := context.Background()
+	ctx := t.Context()
 
 	wrongObject := &corev1.Pod{}
 	warnings, err := validator.ValidateCreate(ctx, wrongObject)
@@ -468,7 +465,7 @@ func TestMdaiReplayCustomValidator_ValidateCreate_WrongType(t *testing.T) {
 
 func TestMdaiReplayCustomValidator_ValidateUpdate_WrongType(t *testing.T) {
 	validator := &MdaiReplayCustomValidator{}
-	ctx := context.Background()
+	ctx := t.Context()
 
 	validReplay := &hubv1.MdaiReplay{}
 	wrongObject := &corev1.Pod{}
@@ -557,7 +554,7 @@ func TestValidateReplaySpec(t *testing.T) {
 							S3Partition: hubv1.S3ReplayMinutePartition,
 						},
 						AWSConfig: &hubv1.MdaiReplayAwsConfig{
-							AWSAccessKeySecret: ptr.To("aws-secret"),
+							AWSAccessKeySecret: new("aws-secret"),
 						},
 					},
 				},

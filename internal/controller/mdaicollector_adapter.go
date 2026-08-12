@@ -20,7 +20,6 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/client-go/tools/record"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/yaml"
@@ -659,11 +658,11 @@ var DefaultSecurityContext = &corev1.SecurityContext{
 	SeccompProfile: &corev1.SeccompProfile{
 		Type: corev1.SeccompProfileTypeRuntimeDefault,
 	},
-	AllowPrivilegeEscalation: ptr.To(false),
+	AllowPrivilegeEscalation: new(false),
 	Capabilities: &corev1.Capabilities{
 		Drop: []corev1.Capability{"ALL"},
 	},
-	RunAsNonRoot: ptr.To(true),
+	RunAsNonRoot: new(true),
 }
 
 func (c MdaiCollectorAdapter) createOrUpdateMdaiCollectorDeployment(ctx context.Context, params CollectorDeploymentParams) (string, error) {
