@@ -15,7 +15,6 @@ import (
 	rbacv1 "k8s.io/api/rbac/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/client-go/tools/record"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 )
@@ -175,7 +174,7 @@ func TestCreateOrUpdateMdaiCollectorRole(t *testing.T) {
 	require.NoError(t, rbacv1.AddToScheme(scheme))
 
 	cl := newFakeClientForCollectorCR(cr, scheme)
-	adapter := NewMdaiCollectorAdapter(cr, logr.Discard(), cl, record.NewFakeRecorder(10), scheme)
+	adapter := NewMdaiCollectorAdapter(cr, logr.Discard(), cl, scheme)
 
 	expectedName := adapter.getScopedMdaiCollectorResourceName("role")
 
@@ -215,7 +214,7 @@ func TestCreateOrUpdateMdaiCollectorRoleBinding(t *testing.T) {
 	require.NoError(t, rbacv1.AddToScheme(scheme))
 
 	cl := newFakeClientForCollectorCR(cr, scheme)
-	adapter := NewMdaiCollectorAdapter(cr, logr.Discard(), cl, record.NewFakeRecorder(10), scheme)
+	adapter := NewMdaiCollectorAdapter(cr, logr.Discard(), cl, scheme)
 
 	expectedName := adapter.getScopedMdaiCollectorResourceName("rb")
 

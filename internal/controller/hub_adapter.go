@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -17,6 +18,7 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/go-logr/logr"
+	goyaml "github.com/goccy/go-yaml"
 	"github.com/mydecisive/mdai-data-core/audit"
 	vars "github.com/mydecisive/mdai-data-core/variables"
 	mdaiv1 "github.com/mydecisive/mdai-operator/api/v1"
@@ -531,7 +533,7 @@ var (
 // (yaml error, or indirection like `${env:${PREFIX}_FOO}`); callers must then treat the
 // collector as consuming every variable.
 func extractCollectorEnvRefs(collector v1beta1.OpenTelemetryCollector) (map[string]struct{}, bool) {
-	cfg, err := collector.Spec.Config.Yaml()
+	cfg, err := collectorConfigYAML(&collector.Spec.Config)
 	if err != nil {
 		return nil, true
 	}
@@ -544,6 +546,15 @@ func extractCollectorEnvRefs(collector v1beta1.OpenTelemetryCollector) (map[stri
 		refs[m[1]] = struct{}{}
 	}
 	return refs, false
+}
+
+func collectorConfigYAML(config *v1beta1.Config) (string, error) {
+	var buf bytes.Buffer
+	yamlEncoder := goyaml.NewEncoder(&buf, goyaml.IndentSequence(true), goyaml.AutoInt())
+	if err := yamlEncoder.Encode(config); err != nil {
+		return "", err
+	}
+	return buf.String(), nil
 }
 
 func diffEnvMapKeys(old, current map[string]string) map[string]struct{} {

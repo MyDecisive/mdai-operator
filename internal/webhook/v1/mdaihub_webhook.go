@@ -11,12 +11,10 @@ import (
 
 	"github.com/prometheus/prometheus/promql/parser"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"k8s.io/utils/ptr"
-	"sigs.k8s.io/controller-runtime/pkg/webhook"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	"github.com/mydecisive/mdai-data-core/variables"
@@ -36,7 +34,7 @@ var forbiddenHeaders = sets.NewString("Host", "Content-Length", "Transfer-Encodi
 
 // SetupMdaiHubWebhookWithManager registers the webhook for MdaiHub in the manager.
 func SetupMdaiHubWebhookWithManager(mgr ctrl.Manager) error {
-	return ctrl.NewWebhookManagedBy(mgr).For(&mdaiv1.MdaiHub{}).
+	return ctrl.NewWebhookManagedBy(mgr, &mdaiv1.MdaiHub{}).
 		WithValidator(&MdaiHubCustomValidator{}).
 		WithDefaulter(&MdaiHubCustomDefaulter{}).
 		Complete()
@@ -53,15 +51,10 @@ type MdaiHubCustomDefaulter struct {
 	// TODO(user): Add more fields as needed for defaulting
 }
 
-var _ webhook.CustomDefaulter = &MdaiHubCustomDefaulter{}
+var _ admission.Defaulter[*mdaiv1.MdaiHub] = &MdaiHubCustomDefaulter{}
 
-// Default implements webhook.CustomDefaulter so a webhook will be registered for the Kind MdaiHub.
-func (*MdaiHubCustomDefaulter) Default(_ context.Context, obj runtime.Object) error {
-	mdaihub, ok := obj.(*mdaiv1.MdaiHub)
-
-	if !ok {
-		return fmt.Errorf("expected an MdaiHub object but got %T", obj)
-	}
+// Default implements admission.Defaulter so a webhook will be registered for the Kind MdaiHub.
+func (*MdaiHubCustomDefaulter) Default(_ context.Context, mdaihub *mdaiv1.MdaiHub) error {
 	mdaihublog.Info("Defaulting for MdaiHub", "name", mdaihub.GetName())
 
 	// a placeholder for defaulting logic.
@@ -82,30 +75,17 @@ type MdaiHubCustomValidator struct {
 	// TODO(user): Add more fields as needed for validation
 }
 
-var _ webhook.CustomValidator = &MdaiHubCustomValidator{}
+var _ admission.Validator[*mdaiv1.MdaiHub] = &MdaiHubCustomValidator{}
 
-// ValidateCreate implements webhook.CustomValidator so a webhook will be registered for the type MdaiHub.
-func (v *MdaiHubCustomValidator) ValidateCreate(_ context.Context, obj runtime.Object) (admission.Warnings, error) {
-	mdaihub, ok := obj.(*mdaiv1.MdaiHub)
-	if !ok {
-		return nil, fmt.Errorf("expected a MdaiHub object but got %T", obj)
-	}
+// ValidateCreate implements admission.Validator so a webhook will be registered for the type MdaiHub.
+func (v *MdaiHubCustomValidator) ValidateCreate(_ context.Context, mdaihub *mdaiv1.MdaiHub) (admission.Warnings, error) {
 	mdaihublog.Info("Validation for MdaiHub upon creation", "name", mdaihub.GetName())
 
 	return v.Validate(mdaihub)
 }
 
-// ValidateUpdate implements webhook.CustomValidator so a webhook will be registered for the type MdaiHub.
-func (v *MdaiHubCustomValidator) ValidateUpdate(_ context.Context, oldObj, newObj runtime.Object) (admission.Warnings, error) {
-	newHub, ok := newObj.(*mdaiv1.MdaiHub)
-	if !ok {
-		return nil, fmt.Errorf("expected a MdaiHub object for the newObj but got %T", newObj)
-	}
-	oldHub, ok := oldObj.(*mdaiv1.MdaiHub)
-	if !ok {
-		return nil, fmt.Errorf("expected a MdaiHub object for the oldObj but got %T", oldHub)
-	}
-
+// ValidateUpdate implements admission.Validator so a webhook will be registered for the type MdaiHub.
+func (v *MdaiHubCustomValidator) ValidateUpdate(_ context.Context, oldHub, newHub *mdaiv1.MdaiHub) (admission.Warnings, error) {
 	if errorList := validateMetaVarRefs(oldHub.Spec.Variables, newHub.Spec.Variables); len(errorList) > 0 {
 		return nil, apierrors.NewInvalid(
 			schema.GroupKind{Group: mdaiv1.GroupVersion.Group, Kind: "MdaiHub"},
@@ -149,12 +129,8 @@ func validateMetaVarRefs(oldVars, newVars []mdaiv1.Variable) field.ErrorList {
 	return errorList
 }
 
-// ValidateDelete implements webhook.CustomValidator so a webhook will be registered for the type MdaiHub.
-func (*MdaiHubCustomValidator) ValidateDelete(_ context.Context, obj runtime.Object) (admission.Warnings, error) {
-	mdaihub, ok := obj.(*mdaiv1.MdaiHub)
-	if !ok {
-		return nil, fmt.Errorf("expected a MdaiHub object but got %T", obj)
-	}
+// ValidateDelete implements admission.Validator so a webhook will be registered for the type MdaiHub.
+func (*MdaiHubCustomValidator) ValidateDelete(_ context.Context, mdaihub *mdaiv1.MdaiHub) (admission.Warnings, error) {
 	mdaihublog.Info("Validation for MdaiHub upon deletion", "name", mdaihub.GetName())
 
 	// TODO(user): fill in your validation logic upon object deletion.

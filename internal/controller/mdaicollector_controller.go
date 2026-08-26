@@ -5,7 +5,6 @@ import (
 	"fmt"
 
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/client-go/tools/record"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -21,8 +20,7 @@ var _ Controller = (*MdaiCollectorReconciler)(nil)
 type MdaiCollectorReconciler struct {
 	client.Client
 
-	Scheme   *runtime.Scheme
-	Recorder record.EventRecorder
+	Scheme *runtime.Scheme
 }
 
 // +kubebuilder:rbac:groups=hub.mydecisive.ai,resources=mdaicollectors,verbs=get;list;watch;create;update;patch;delete
@@ -51,7 +49,7 @@ func (r *MdaiCollectorReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
-	_, err := r.ReconcileHandler(ctx, *NewMdaiCollectorAdapter(fetchedCR, log, r.Client, r.Recorder, r.Scheme))
+	_, err := r.ReconcileHandler(ctx, *NewMdaiCollectorAdapter(fetchedCR, log, r.Client, r.Scheme))
 	if err != nil {
 		return ctrl.Result{}, err
 	}
