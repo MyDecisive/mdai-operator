@@ -28,8 +28,8 @@ var mdaireplaylog = logf.Log.WithName("mdaireplay-resource")
 
 // SetupMdaiReplayWebhookWithManager registers the webhook for MdaiReplay in the manager.
 func SetupMdaiReplayWebhookWithManager(mgr ctrl.Manager) error {
-	return ctrl.NewWebhookManagedBy(mgr).For(&hubv1.MdaiReplay{}).
-		WithValidator(&MdaiReplayCustomValidator{}).
+	return ctrl.NewWebhookManagedBy(mgr, &hubv1.MdaiReplay{}).
+		WithCustomValidator(&MdaiReplayCustomValidator{}).
 		Complete()
 }
 

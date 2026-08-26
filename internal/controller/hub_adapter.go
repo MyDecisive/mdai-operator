@@ -20,6 +20,7 @@ import (
 	"github.com/mydecisive/mdai-data-core/audit"
 	vars "github.com/mydecisive/mdai-data-core/variables"
 	mdaiv1 "github.com/mydecisive/mdai-operator/api/v1"
+	"github.com/mydecisive/mdai-operator/internal/otelconfig"
 	"github.com/open-telemetry/opentelemetry-operator/apis/v1beta1"
 	prometheusv1 "github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring/v1"
 	"github.com/valkey-io/valkey-go"
@@ -531,7 +532,7 @@ var (
 // (yaml error, or indirection like `${env:${PREFIX}_FOO}`); callers must then treat the
 // collector as consuming every variable.
 func extractCollectorEnvRefs(collector v1beta1.OpenTelemetryCollector) (map[string]struct{}, bool) {
-	cfg, err := collector.Spec.Config.Yaml()
+	cfg, err := otelconfig.YAML(&collector.Spec.Config)
 	if err != nil {
 		return nil, true
 	}

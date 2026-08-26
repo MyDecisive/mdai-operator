@@ -4,13 +4,13 @@
 package collector
 
 import (
-	"github.com/go-logr/zapr"
 	"go.uber.org/zap"
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
 
 	mdaiv1 "github.com/mydecisive/mdai-operator/api/v1"
 	"github.com/mydecisive/mdai-operator/internal/manifests"
+	"github.com/mydecisive/mdai-operator/internal/otelconfig"
 	"github.com/open-telemetry/opentelemetry-operator/apis/v1beta1"
 )
 
@@ -23,8 +23,7 @@ func Ingress(params manifests.Params) (*networkingv1.Ingress, error) {
 }
 
 func servicePortsFromCfg(logger *zap.Logger, otelcol v1beta1.OpenTelemetryCollector) ([]corev1.ServicePort, error) {
-	logrLogger := zapr.NewLogger(logger)
-	ports, err := otelcol.Spec.Config.GetReceiverPorts(logrLogger)
+	ports, err := otelconfig.GetReceiverPorts(&otelcol.Spec.Config, logger)
 	if err != nil {
 		logger.Error("couldn't build the ingress for this instance", zap.Error(err))
 		return nil, err

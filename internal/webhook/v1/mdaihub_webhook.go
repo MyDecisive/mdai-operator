@@ -36,9 +36,9 @@ var forbiddenHeaders = sets.NewString("Host", "Content-Length", "Transfer-Encodi
 
 // SetupMdaiHubWebhookWithManager registers the webhook for MdaiHub in the manager.
 func SetupMdaiHubWebhookWithManager(mgr ctrl.Manager) error {
-	return ctrl.NewWebhookManagedBy(mgr).For(&mdaiv1.MdaiHub{}).
-		WithValidator(&MdaiHubCustomValidator{}).
-		WithDefaulter(&MdaiHubCustomDefaulter{}).
+	return ctrl.NewWebhookManagedBy(mgr, &mdaiv1.MdaiHub{}).
+		WithCustomValidator(&MdaiHubCustomValidator{}).
+		WithCustomDefaulter(&MdaiHubCustomDefaulter{}).
 		Complete()
 }
 

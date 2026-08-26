@@ -10,7 +10,6 @@ import (
 
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 
-	"github.com/go-logr/zapr"
 	opentelemetryv1beta1 "github.com/open-telemetry/opentelemetry-operator/apis/v1beta1"
 	prometheusv1 "github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring/v1"
 	"go.uber.org/zap"
@@ -119,7 +118,7 @@ func main() {
 	flag.Parse()
 
 	zapLogger := ctrlzap.NewRaw(ctrlzap.UseFlagOptions(&zapOpts))
-	logger := zapr.NewLogger(zapLogger)
+	logger := ctrlzap.New(ctrlzap.UseFlagOptions(&zapOpts))
 	if !otelSdkEnabled() {
 		logger.Info("OTEL SDK has been disabled with " + otelSdkDisabledEnvVar + " environment variable")
 	}

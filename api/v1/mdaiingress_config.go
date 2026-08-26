@@ -4,6 +4,7 @@ import (
 	"github.com/mydecisive/mdai-operator/internal/components"
 	"github.com/mydecisive/mdai-operator/internal/components/exporters"
 	"github.com/mydecisive/mdai-operator/internal/components/receivers"
+	"github.com/mydecisive/mdai-operator/internal/otelconfig"
 	"github.com/open-telemetry/opentelemetry-operator/apis/v1beta1"
 	"go.uber.org/zap"
 )
@@ -29,7 +30,7 @@ func (c *OtelMdaiIngressComb) GetReceiverPortsWithUrlPaths(logger *zap.Logger) (
 // mydecisive
 func (c *OtelMdaiIngressComb) getPortsWithUrlPathsForComponentKinds(logger *zap.Logger, componentKinds ...v1beta1.ComponentKind) (components.ComponentsPortsUrlPaths, error) {
 	componentsPortsUrlPaths := components.ComponentsPortsUrlPaths{}
-	enabledComponents := c.Otelcol.Spec.Config.GetEnabledComponents()
+	enabledComponents := otelconfig.GetEnabledComponents(&c.Otelcol.Spec.Config)
 	for _, componentKind := range componentKinds {
 		var retriever components.ParserRetriever
 		var cfg v1beta1.AnyConfig

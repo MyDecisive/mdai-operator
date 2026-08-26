@@ -1,20 +1,18 @@
 package controller
 
 import (
-	"bytes"
 	"context"
 	"testing"
 
+	"github.com/go-logr/logr"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"go.uber.org/zap"
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
 
-	"github.com/go-logr/zapr"
 	otelv1beta1 "github.com/open-telemetry/opentelemetry-operator/apis/v1beta1"
 	"github.com/stretchr/testify/require"
-	"go.uber.org/zap"
-	"go.uber.org/zap/zapcore"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -462,9 +460,7 @@ func fakeClient(scheme *runtime.Scheme, objs ...client.Object) client.WithWatch 
 func TestOnlyOneMdaiIngressPerOtelcol_SingleRef(t *testing.T) {
 	scheme := createTestScheme()
 
-	var buf bytes.Buffer
-	zapLog := makeBufferLogger(&buf)
-	logger := zapr.NewLogger(zapLog)
+	logger := logr.Discard()
 	ctx := log.IntoContext(t.Context(), logger)
 
 	otelcol := otelv1beta1.OpenTelemetryCollector{
@@ -498,16 +494,12 @@ func TestOnlyOneMdaiIngressPerOtelcol_SingleRef(t *testing.T) {
 
 	ok := r.otelColExists(ctx, "gateway", "default")
 	require.True(t, ok)
-
-	_ = zapLog.Sync()
 }
 
 func TestCoupledWithOtelcol(t *testing.T) {
 	scheme := createTestScheme()
 
-	var buf bytes.Buffer
-	zapLog := makeBufferLogger(&buf)
-	logger := zapr.NewLogger(zapLog)
+	logger := logr.Discard()
 	ctx := log.IntoContext(t.Context(), logger)
 
 	otelcol1 := otelv1beta1.OpenTelemetryCollector{
@@ -551,15 +543,4 @@ func TestCoupledWithOtelcol(t *testing.T) {
 
 	ok := r.otelColExists(ctx, "gateway1", "default")
 	require.True(t, ok)
-}
-
-func makeBufferLogger(buf *bytes.Buffer) *zap.Logger {
-	writer := zapcore.AddSync(buf)
-	encoderCfg := zap.NewDevelopmentEncoderConfig()
-	core := zapcore.NewCore(
-		zapcore.NewConsoleEncoder(encoderCfg),
-		writer,
-		zapcore.DebugLevel,
-	)
-	return zap.New(core)
 }

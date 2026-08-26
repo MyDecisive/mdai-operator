@@ -19,8 +19,8 @@ var mdaiobserverlog = logf.Log.WithName("mdaiobserver-resource")
 
 // SetupMdaiObserverWebhookWithManager registers the webhook for MdaiObserver in the manager.
 func SetupMdaiObserverWebhookWithManager(mgr ctrl.Manager) error {
-	return ctrl.NewWebhookManagedBy(mgr).For(&mdaiv1.MdaiObserver{}).
-		WithValidator(&MdaiObserverCustomValidator{}).
+	return ctrl.NewWebhookManagedBy(mgr, &mdaiv1.MdaiObserver{}).
+		WithCustomValidator(&MdaiObserverCustomValidator{}).
 		Complete()
 }
 

@@ -24,9 +24,9 @@ var mdaiIngresslog = logf.Log.WithName("mdaiingress-resource")
 
 // SetupMdaiIngressWebhookWithManager registers the webhook for MdaiIngress in the manager.
 func SetupMdaiIngressWebhookWithManager(mgr ctrl.Manager) error {
-	return ctrl.NewWebhookManagedBy(mgr).For(&mdaiv1.MdaiIngress{}).
-		WithValidator(&MdaiIngressCustomValidator{client: mgr.GetClient()}).
-		WithDefaulter(&MdaiIngressCustomDefaulter{}).
+	return ctrl.NewWebhookManagedBy(mgr, &mdaiv1.MdaiIngress{}).
+		WithCustomValidator(&MdaiIngressCustomValidator{client: mgr.GetClient()}).
+		WithCustomDefaulter(&MdaiIngressCustomDefaulter{}).
 		Complete()
 }
 
