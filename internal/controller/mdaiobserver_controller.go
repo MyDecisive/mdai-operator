@@ -51,14 +51,14 @@ func (r *MdaiObserverReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
-	_, err := r.ReconcileHandler(ctx, *NewObserverAdapter(fetchedCR, log, r.Client, r.Recorder, r.Scheme))
+	result, err := r.ReconcileHandler(ctx, *NewObserverAdapter(fetchedCR, log, r.Client, r.Recorder, r.Scheme))
 	if err != nil {
-		return ctrl.Result{}, err
+		return result, err
 	}
 
 	log.Info("-- Finished MdaiObserver reconciliation --")
 
-	return ctrl.Result{}, nil
+	return result, nil
 }
 
 // ReconcileHandler processes the MdaiObserver CR and performs the necessary operations.

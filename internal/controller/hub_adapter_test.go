@@ -1097,32 +1097,21 @@ func TestEnsureStatusSetToDone(t *testing.T) {
 	adapter := NewHubAdapter(mdaiCR, logr.Discard(), zap.NewNop(), fakeClient, recorder, scheme, nil, time.Duration(30))
 
 	opResult, err := adapter.ensureStatusSetToDone(ctx)
-	if err != nil {
-		t.Fatalf("ensureStatusSetToDone returned error: %v", err)
-	}
-	if opResult != ContinueOperationResult() {
-		t.Errorf("expected ContinueOperationResult, got: %v", opResult)
-	}
+	require.NoError(t, err, "ensureStatusSetToDone returned error")
+	assert.Equal(t, ContinueOperationResult(), opResult, "unexpected operation result")
 
 	updatedCR := &mdaiv1.MdaiHub{}
 	err = fakeClient.Get(ctx, types.NamespacedName{Name: "test-hub", Namespace: "default"}, updatedCR)
-	if err != nil {
-		t.Fatalf("failed to re-fetch mdaiCR: %v", err)
-	}
+	require.NoError(t, err, "failed to re-fetch mdaiCR")
 
 	cond := meta.FindStatusCondition(updatedCR.Status.Conditions, typeAvailableHub)
-	if cond == nil {
-		t.Fatalf("expected condition %q to exist, but it was not found", typeAvailableHub)
+	require.NotNil(t, cond, "expected condition %q to exist", typeAvailableHub)
+	if cond == nil { // keep explicit guard for static analyzers
+		return
 	}
-	if cond.Status != metav1.ConditionTrue { //nolint:staticcheck
-		t.Errorf("expected condition %q to be True, got: %v", typeAvailableHub, cond.Status)
-	}
-	if cond.Reason != "Reconciling" {
-		t.Errorf("expected reason 'Reconciling', got: %q", cond.Reason)
-	}
-	if cond.Message != "reconciled successfully" {
-		t.Errorf("expected message 'reconciled successfully', got: %q", cond.Message)
-	}
+	assert.Equal(t, metav1.ConditionTrue, cond.Status, "expected condition %q to be True", typeAvailableHub)
+	assert.Equal(t, "Reconciling", cond.Reason)
+	assert.Equal(t, "reconciled successfully", cond.Message)
 }
 
 func TestEnsureAutomationsSynchronized(t *testing.T) {
