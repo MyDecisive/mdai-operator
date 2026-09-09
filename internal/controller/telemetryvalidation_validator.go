@@ -5,7 +5,6 @@ import (
 	_ "embed"
 	"fmt"
 	"maps"
-	"slices"
 	"strings"
 
 	"k8s.io/apimachinery/pkg/types"
@@ -22,6 +21,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	hubv1 "github.com/mydecisive/mdai-operator/api/v1"
+	"github.com/mydecisive/mdai-operator/internal/collectorconfig"
 )
 
 //go:embed config/telemetryvalidation_validator_rules.yaml
@@ -422,11 +422,18 @@ func (r *TelemetryValidationReconciler) resolveValidatorIngressPorts(
 		return 0, nil, err
 	}
 
-	allPorts := extractAllReceiverPorts(source.Spec.Config)
+	allReceiverPorts, err := collectorconfig.ReceiverPorts(ctx, r.Client, source)
+	if err != nil {
+		return 0, nil, err
+	}
+	allPorts := collectorconfig.ReceiverPortNumbers(allReceiverPorts)
 	if len(allPorts) == 0 {
 		allPorts = []uint32{uint32(defaultValidatorReceiverPort)}
 	}
-	preferredPorts := extractPreferredReceiverPorts(source.Spec.Config)
+	preferredPorts, err := collectorconfig.PreferredReceiverPortNumbers(ctx, r.Client, source)
+	if err != nil {
+		return 0, nil, err
+	}
 	if len(preferredPorts) == 0 {
 		preferredPorts = allPorts
 	}
@@ -469,106 +476,4 @@ func buildValidatorReceiverServicePorts(exposedPorts []int32, targetPort int32) 
 		})
 	}
 	return ports
-}
-
-func extractPreferredReceiverPorts(config otelv1beta1.Config) []uint32 {
-	datadogPorts := make([]uint32, 0)
-	allPorts := make([]uint32, 0)
-
-	for receiverName, rawReceiver := range config.Receivers.Object {
-		receiver, ok := rawReceiver.(map[string]any)
-		if !ok {
-			continue
-		}
-		isDatadog := strings.HasPrefix(strings.ToLower(strings.TrimSpace(receiverName)), "datadog")
-
-		receiverPorts := make([]uint32, 0)
-		if endpoint, ok := receiver["endpoint"].(string); ok {
-			if port := extractPort(endpoint); port != 0 {
-				receiverPorts = append(receiverPorts, port)
-			}
-		}
-		if protocols, ok := receiver["protocols"].(map[string]any); ok {
-			for _, rawProtocol := range protocols {
-				protocol, ok := rawProtocol.(map[string]any)
-				if !ok {
-					continue
-				}
-				if endpoint, ok := protocol["endpoint"].(string); ok {
-					if port := extractPort(endpoint); port != 0 {
-						receiverPorts = append(receiverPorts, port)
-					}
-				}
-			}
-		}
-
-		if len(receiverPorts) == 0 {
-			continue
-		}
-		if isDatadog {
-			datadogPorts = append(datadogPorts, receiverPorts...)
-		}
-		allPorts = append(allPorts, receiverPorts...)
-	}
-
-	if len(datadogPorts) > 0 {
-		return sortAndDedupePorts(datadogPorts)
-	}
-	return sortAndDedupePorts(allPorts)
-}
-
-func extractAllReceiverPorts(config otelv1beta1.Config) []uint32 {
-	allPorts := make([]uint32, 0)
-	for _, rawReceiver := range config.Receivers.Object {
-		receiver, ok := rawReceiver.(map[string]any)
-		if !ok {
-			continue
-		}
-		if endpoint, ok := receiver["endpoint"].(string); ok {
-			if port := extractPort(endpoint); port != 0 {
-				allPorts = append(allPorts, port)
-			}
-		}
-		if protocols, ok := receiver["protocols"].(map[string]any); ok {
-			for _, rawProtocol := range protocols {
-				protocol, ok := rawProtocol.(map[string]any)
-				if !ok {
-					continue
-				}
-				if endpoint, ok := protocol["endpoint"].(string); ok {
-					if port := extractPort(endpoint); port != 0 {
-						allPorts = append(allPorts, port)
-					}
-				}
-			}
-		}
-	}
-	return sortAndDedupePorts(allPorts)
-}
-
-func sortAndDedupePorts(ports []uint32) []uint32 {
-	if len(ports) == 0 {
-		return ports
-	}
-	sorted := slices.Clone(ports)
-	slices.Sort(sorted)
-	deduped := sorted[:1]
-	for _, p := range sorted[1:] {
-		if p != deduped[len(deduped)-1] {
-			deduped = append(deduped, p)
-		}
-	}
-	return deduped
-}
-
-func extractPort(addr string) uint32 {
-	var port uint32
-	_, _ = fmt.Sscanf(addr, "0.0.0.0:%d", &port)
-	if port == 0 {
-		_, _ = fmt.Sscanf(addr, ":%d", &port)
-	}
-	if port == 0 {
-		_, _ = fmt.Sscanf(addr, "%d", &port)
-	}
-	return port
 }
