@@ -17,6 +17,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 )
 
@@ -25,7 +26,13 @@ type fakeXDSManager struct {
 	collectors []otelv1beta1.OpenTelemetryCollector
 }
 
-func (f *fakeXDSManager) UpdateSnapshot(_ context.Context, _ string, collectors []otelv1beta1.OpenTelemetryCollector, _ []hubv1.TelemetryValidation) error {
+func (f *fakeXDSManager) UpdateSnapshot(
+	_ context.Context,
+	_ string,
+	collectors []otelv1beta1.OpenTelemetryCollector,
+	_ []hubv1.TelemetryValidation,
+	_ client.Reader,
+) error {
 	f.called = true
 	f.collectors = append([]otelv1beta1.OpenTelemetryCollector(nil), collectors...)
 	return nil
@@ -399,7 +406,77 @@ func TestDiscoveredCollectorPortsFallsBackToDefaultPorts(t *testing.T) {
 		},
 	}
 
-	assert.Equal(t, []uint32{4317, 4318}, discoveredCollectorPorts([]otelv1beta1.OpenTelemetryCollector{collector}))
+	ports, err := discoveredCollectorPorts(t.Context(), nil, []otelv1beta1.OpenTelemetryCollector{collector})
+	require.NoError(t, err)
+	assert.Equal(t, []uint32{4317, 4318}, ports)
+}
+
+func TestDiscoveredCollectorPortsResolvesEnvironmentEndpointPorts(t *testing.T) {
+	tests := []struct {
+		name    string
+		env     []corev1.EnvVar
+		envFrom []corev1.EnvFromSource
+		objects []client.Object
+		want    []uint32
+	}{
+		{
+			name: "spec env",
+			env:  []corev1.EnvVar{{Name: "PORT", Value: "8126"}},
+			want: []uint32{8126},
+		},
+		{
+			name: "spec envFrom configmap",
+			envFrom: []corev1.EnvFromSource{{
+				ConfigMapRef: &corev1.ConfigMapEnvSource{
+					LocalObjectReference: corev1.LocalObjectReference{Name: "collector-ports"},
+				},
+			}},
+			objects: []client.Object{&corev1.ConfigMap{
+				ObjectMeta: metav1.ObjectMeta{Name: "collector-ports", Namespace: "mdai"},
+				Data:       map[string]string{"PORT": "14268"},
+			}},
+			want: []uint32{14268},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			scheme := runtime.NewScheme()
+			require.NoError(t, corev1.AddToScheme(scheme))
+			cl := fake.NewClientBuilder().
+				WithScheme(scheme).
+				WithObjects(tt.objects...).
+				Build()
+			collector := otelv1beta1.OpenTelemetryCollector{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "gateway",
+					Namespace: "mdai",
+					Labels: map[string]string{
+						xdsRoleLabelKey: connectionCollectorRole,
+					},
+				},
+				Spec: otelv1beta1.OpenTelemetryCollectorSpec{
+					OpenTelemetryCommonFields: otelv1beta1.OpenTelemetryCommonFields{
+						Env:     tt.env,
+						EnvFrom: tt.envFrom,
+					},
+					Config: otelv1beta1.Config{
+						Receivers: otelv1beta1.AnyConfig{
+							Object: map[string]any{
+								"datadog": map[string]any{
+									"endpoint": "0.0.0.0:${env:PORT}",
+								},
+							},
+						},
+					},
+				},
+			}
+
+			ports, err := discoveredCollectorPorts(t.Context(), cl, []otelv1beta1.OpenTelemetryCollector{collector})
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, ports)
+		})
+	}
 }
 
 func TestXDSReconcileReconcilesServicePortsWithoutEndpointReadiness(t *testing.T) {

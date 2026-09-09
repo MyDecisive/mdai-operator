@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	hubv1 "github.com/mydecisive/mdai-operator/api/v1"
+	"github.com/mydecisive/mdai-operator/internal/collectorconfig"
 	otelv1beta1 "github.com/open-telemetry/opentelemetry-operator/apis/v1beta1"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -39,8 +40,6 @@ const (
 	connectionCollectorRole     = "connection-collector"
 	xdsManagedServicePortPrefix = "xds-"
 	splitNKeyValue              = 2
-	defaultOTLPGRPCPort         = 4317
-	defaultOTLPHTTPPort         = 4318
 )
 
 var (
@@ -51,7 +50,13 @@ var (
 
 // XDSManager defines the interface for updating the xDS snapshot
 type XDSManager interface {
-	UpdateSnapshot(ctx context.Context, nodeID string, collectors []otelv1beta1.OpenTelemetryCollector, validations []hubv1.TelemetryValidation) error
+	UpdateSnapshot(
+		ctx context.Context,
+		nodeID string,
+		collectors []otelv1beta1.OpenTelemetryCollector,
+		validations []hubv1.TelemetryValidation,
+		reader client.Reader,
+	) error
 }
 
 // XDSReconciler reconciles xDS snapshots based on OpenTelemetryCollector objects
@@ -65,6 +70,7 @@ type XDSReconciler struct {
 }
 
 // +kubebuilder:rbac:groups=opentelemetry.io,resources=opentelemetrycollectors,verbs=get;list;watch
+// +kubebuilder:rbac:groups="",resources=configmaps;secrets,verbs=get
 
 // Reconcile handles xDS snapshot updates
 func (r *XDSReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
@@ -90,7 +96,7 @@ func (r *XDSReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 	}
 
 	// For now, we use a fixed nodeID as configured in the hub chart
-	if err := r.XDSManager.UpdateSnapshot(ctx, "envoy-hub-proxy", eligibleCollectors, validations.Items); err != nil {
+	if err := r.XDSManager.UpdateSnapshot(ctx, "envoy-hub-proxy", eligibleCollectors, validations.Items, r.reader()); err != nil {
 		log.Error(err, "failed to update xDS snapshot")
 		return ctrl.Result{}, err
 	}
@@ -133,7 +139,11 @@ func (r *XDSReconciler) SetupWithManager(mgr ctrl.Manager) error {
 }
 
 func (r *XDSReconciler) reconcileProxyServicePorts(ctx context.Context, collectors []otelv1beta1.OpenTelemetryCollector) error {
-	desiredManagedPorts := managedServicePorts(discoveredCollectorPorts(collectors))
+	collectorPorts, err := discoveredCollectorPorts(ctx, r.reader(), collectors)
+	if err != nil {
+		return err
+	}
+	desiredManagedPorts := managedServicePorts(collectorPorts)
 
 	service, err := r.resolveProxyService(ctx, desiredManagedPorts)
 	if err != nil {
@@ -371,16 +381,23 @@ func parseLabelSelector(raw string) map[string]string {
 	return result
 }
 
-func discoveredCollectorPorts(collectors []otelv1beta1.OpenTelemetryCollector) []uint32 {
+func discoveredCollectorPorts(
+	ctx context.Context,
+	reader client.Reader,
+	collectors []otelv1beta1.OpenTelemetryCollector,
+) ([]uint32, error) {
 	seen := make(map[uint32]struct{})
 
 	for _, collector := range collectors {
-		ports := extractPortsFromConfigForXDS(collector.Spec.Config)
+		ports, err := collectorconfig.ReceiverPorts(ctx, reader, collector)
+		if err != nil {
+			return nil, err
+		}
 		if len(ports) == 0 {
-			ports = []uint32{defaultOTLPGRPCPort, defaultOTLPHTTPPort}
+			ports = collectorconfig.DefaultReceiverPorts()
 		}
 		for _, p := range ports {
-			seen[p] = struct{}{}
+			seen[p.Port] = struct{}{}
 		}
 	}
 
@@ -389,7 +406,7 @@ func discoveredCollectorPorts(collectors []otelv1beta1.OpenTelemetryCollector) [
 		result = append(result, p)
 	}
 	slices.Sort(result)
-	return result
+	return result, nil
 }
 
 func managedServicePorts(ports []uint32) []corev1.ServicePort {
@@ -477,38 +494,4 @@ func eligibleCollectorsForXDS(collectors []otelv1beta1.OpenTelemetryCollector) [
 		filtered = append(filtered, collector)
 	}
 	return filtered
-}
-
-func extractPortsFromConfigForXDS(config otelv1beta1.Config) []uint32 {
-	ports := make([]uint32, 0)
-	receivers := config.Receivers.Object
-
-	for _, receiver := range receivers {
-		receiverMap, ok := receiver.(map[string]any)
-		if !ok {
-			continue
-		}
-
-		if receiverEndpoint, ok := receiverMap["endpoint"].(string); ok {
-			if port := extractPort(receiverEndpoint); port != 0 {
-				ports = append(ports, port)
-			}
-		}
-
-		if protocols, ok := receiverMap["protocols"].(map[string]any); ok {
-			for _, protocol := range protocols {
-				protocolMap, ok := protocol.(map[string]any)
-				if !ok {
-					continue
-				}
-				if protocolEndpoint, ok := protocolMap["endpoint"].(string); ok {
-					if port := extractPort(protocolEndpoint); port != 0 {
-						ports = append(ports, port)
-					}
-				}
-			}
-		}
-	}
-
-	return ports
 }
