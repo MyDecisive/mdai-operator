@@ -378,7 +378,7 @@ func TestUpdateSnapshotResolvesEnvironmentEndpointPorts(t *testing.T) {
 
 			manager := NewXDSManager()
 			collector := newCollectorWithProtocol("gateway", "mdai", "grpc", 4317)
-			collector.Spec.OpenTelemetryCommonFields.Env = tt.env //nolint:staticcheck // keep embedded field explicit in this test setup
+			collector.Spec.OpenTelemetryCommonFields.Env = tt.env         //nolint:staticcheck // keep embedded field explicit in this test setup
 			collector.Spec.OpenTelemetryCommonFields.EnvFrom = tt.envFrom //nolint:staticcheck // keep embedded field explicit in this test setup
 			collector.Spec.Config.Receivers.Object["otlp"] = map[string]any{
 				"protocols": map[string]any{
