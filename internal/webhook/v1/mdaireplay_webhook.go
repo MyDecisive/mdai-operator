@@ -28,8 +28,8 @@ var mdaireplaylog = logf.Log.WithName("mdaireplay-resource")
 
 // SetupMdaiReplayWebhookWithManager registers the webhook for MdaiReplay in the manager.
 func SetupMdaiReplayWebhookWithManager(mgr ctrl.Manager) error {
-	return ctrl.NewWebhookManagedBy(mgr).For(&hubv1.MdaiReplay{}).
-		WithValidator(&MdaiReplayCustomValidator{}).
+	return ctrl.NewWebhookManagedBy(mgr, &hubv1.MdaiReplay{}).
+		WithCustomValidator(&MdaiReplayCustomValidator{}).
 		Complete()
 }
 
@@ -47,7 +47,7 @@ type MdaiReplayCustomValidator struct {
 	// TODO(user): Add more fields as needed for validation
 }
 
-var _ webhook.CustomValidator = &MdaiReplayCustomValidator{}
+var _ webhook.CustomValidator = &MdaiReplayCustomValidator{} //nolint:staticcheck // keep deprecated interface for type-safety test coverage
 
 // ValidateCreate implements webhook.CustomValidator so a webhook will be registered for the type MdaiReplay.
 func (*MdaiReplayCustomValidator) ValidateCreate(ctx context.Context, obj runtime.Object) (admission.Warnings, error) {

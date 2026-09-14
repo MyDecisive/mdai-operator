@@ -17,7 +17,7 @@ import (
 )
 
 var (
-	_ webhook.CustomValidator = &MdaiCollectorCustomValidator{}
+	_ webhook.CustomValidator = &MdaiCollectorCustomValidator{} //nolint:staticcheck // keep deprecated interface for type-safety test coverage
 	// nolint:unused
 	// log is for logging in this package.
 	mdaicollectorlog = logf.Log.WithName("mdaicollector-resource") // Regex explanation:
@@ -36,8 +36,8 @@ var (
 
 // SetupMdaiCollectorWebhookWithManager registers the webhook for MdaiCollector in the manager.
 func SetupMdaiCollectorWebhookWithManager(mgr ctrl.Manager) error {
-	return ctrl.NewWebhookManagedBy(mgr).For(&mdaiv1.MdaiCollector{}).
-		WithValidator(&MdaiCollectorCustomValidator{}).
+	return ctrl.NewWebhookManagedBy(mgr, &mdaiv1.MdaiCollector{}).
+		WithCustomValidator(&MdaiCollectorCustomValidator{}).
 		Complete()
 }
 

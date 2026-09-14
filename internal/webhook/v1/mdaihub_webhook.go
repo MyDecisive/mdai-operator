@@ -36,9 +36,9 @@ var forbiddenHeaders = sets.NewString("Host", "Content-Length", "Transfer-Encodi
 
 // SetupMdaiHubWebhookWithManager registers the webhook for MdaiHub in the manager.
 func SetupMdaiHubWebhookWithManager(mgr ctrl.Manager) error {
-	return ctrl.NewWebhookManagedBy(mgr).For(&mdaiv1.MdaiHub{}).
-		WithValidator(&MdaiHubCustomValidator{}).
-		WithDefaulter(&MdaiHubCustomDefaulter{}).
+	return ctrl.NewWebhookManagedBy(mgr, &mdaiv1.MdaiHub{}).
+		WithCustomValidator(&MdaiHubCustomValidator{}).
+		WithCustomDefaulter(&MdaiHubCustomDefaulter{}).
 		Complete()
 }
 
@@ -53,7 +53,7 @@ type MdaiHubCustomDefaulter struct {
 	// TODO(user): Add more fields as needed for defaulting
 }
 
-var _ webhook.CustomDefaulter = &MdaiHubCustomDefaulter{}
+var _ webhook.CustomDefaulter = &MdaiHubCustomDefaulter{} //nolint:staticcheck // keep deprecated interface for type-safety test coverage
 
 // Default implements webhook.CustomDefaulter so a webhook will be registered for the Kind MdaiHub.
 func (*MdaiHubCustomDefaulter) Default(_ context.Context, obj runtime.Object) error {
@@ -82,7 +82,7 @@ type MdaiHubCustomValidator struct {
 	// TODO(user): Add more fields as needed for validation
 }
 
-var _ webhook.CustomValidator = &MdaiHubCustomValidator{}
+var _ webhook.CustomValidator = &MdaiHubCustomValidator{} //nolint:staticcheck // keep deprecated interface for type-safety test coverage
 
 // ValidateCreate implements webhook.CustomValidator so a webhook will be registered for the type MdaiHub.
 func (v *MdaiHubCustomValidator) ValidateCreate(_ context.Context, obj runtime.Object) (admission.Warnings, error) {

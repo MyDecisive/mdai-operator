@@ -24,9 +24,9 @@ var mdaiIngresslog = logf.Log.WithName("mdaiingress-resource")
 
 // SetupMdaiIngressWebhookWithManager registers the webhook for MdaiIngress in the manager.
 func SetupMdaiIngressWebhookWithManager(mgr ctrl.Manager) error {
-	return ctrl.NewWebhookManagedBy(mgr).For(&mdaiv1.MdaiIngress{}).
-		WithValidator(&MdaiIngressCustomValidator{client: mgr.GetClient()}).
-		WithDefaulter(&MdaiIngressCustomDefaulter{}).
+	return ctrl.NewWebhookManagedBy(mgr, &mdaiv1.MdaiIngress{}).
+		WithCustomValidator(&MdaiIngressCustomValidator{client: mgr.GetClient()}).
+		WithCustomDefaulter(&MdaiIngressCustomDefaulter{}).
 		Complete()
 }
 
@@ -39,7 +39,7 @@ func SetupMdaiIngressWebhookWithManager(mgr ctrl.Manager) error {
 // as it is used only for temporary operations and does not need to be deeply copied.
 type MdaiIngressCustomDefaulter struct{}
 
-var _ webhook.CustomDefaulter = &MdaiIngressCustomDefaulter{}
+var _ webhook.CustomDefaulter = &MdaiIngressCustomDefaulter{} //nolint:staticcheck // keep deprecated interface for type-safety test coverage
 
 // Default implements webhook.CustomDefaulter so a webhook will be registered for the Kind MdaiIngress.
 //
