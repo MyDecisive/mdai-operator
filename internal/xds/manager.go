@@ -3,7 +3,6 @@ package xds
 import (
 	"context"
 	"fmt"
-	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -25,18 +24,15 @@ import (
 	"github.com/envoyproxy/go-control-plane/pkg/wellknown"
 	"github.com/go-logr/logr"
 	hubv1 "github.com/mydecisive/mdai-operator/api/v1"
+	"github.com/mydecisive/mdai-operator/internal/collectorconfig"
 	otelv1beta1 "github.com/open-telemetry/opentelemetry-operator/apis/v1beta1"
 	"google.golang.org/protobuf/types/known/anypb"
 	"google.golang.org/protobuf/types/known/durationpb"
 	"google.golang.org/protobuf/types/known/wrapperspb"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 const httpProtocolOptionsTypedExtension = "envoy.extensions.upstreams.http.v3.HttpProtocolOptions"
-
-const (
-	defaultOTLPGRPCPort = 4317
-	defaultOTLPHTTPPort = 4318
-)
 
 type Manager struct {
 	cache   cache.SnapshotCache
@@ -69,7 +65,13 @@ type routeTarget struct {
 	port        uint32
 }
 
-func (m *Manager) UpdateSnapshot(ctx context.Context, nodeID string, collectors []otelv1beta1.OpenTelemetryCollector, validations []hubv1.TelemetryValidation) error {
+func (m *Manager) UpdateSnapshot(
+	ctx context.Context,
+	nodeID string,
+	collectors []otelv1beta1.OpenTelemetryCollector,
+	validations []hubv1.TelemetryValidation,
+	reader client.Reader,
+) error {
 	log := logr.FromContextOrDiscard(ctx)
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -106,23 +108,23 @@ func (m *Manager) UpdateSnapshot(ctx context.Context, nodeID string, collectors 
 		// The OTEL Operator creates a service named <collector-name>-collector
 		svcName := fmt.Sprintf("%s-collector.%s.svc.cluster.local", c.Name, c.Namespace)
 
-		ports := m.extractPortsFromConfig(c.Spec.Config)
+		ports, err := collectorconfig.ReceiverPorts(ctx, reader, c)
+		if err != nil {
+			return err
+		}
 		if len(ports) == 0 {
-			ports = []collectorProtocolPort{
-				{port: defaultOTLPGRPCPort, enableHTTP2: true},
-				{port: defaultOTLPHTTPPort, enableHTTP2: false},
-			}
+			ports = collectorconfig.DefaultReceiverPorts()
 		}
 
 		log.Info("Identified ports for collector", "collector", c.Name, "ports", ports)
 
 		for _, p := range ports {
-			portMap[p.port] = append(portMap[p.port], collectorPort{
-				port:           p.port,
+			portMap[p.Port] = append(portMap[p.Port], collectorPort{
+				port:           p.Port,
 				svc:            svcName,
 				name:           c.Name,
 				ns:             c.Namespace,
-				enableHTTP2:    p.enableHTTP2,
+				enableHTTP2:    p.EnableHTTP2,
 				mdaiConnection: c.Labels["app"],
 			})
 		}
@@ -470,73 +472,4 @@ func IsShadowCollector(c otelv1beta1.OpenTelemetryCollector) bool {
 		return true
 	}
 	return strings.HasSuffix(c.Name, "-shadow")
-}
-
-type collectorProtocolPort struct {
-	port        uint32
-	enableHTTP2 bool
-}
-
-func (*Manager) extractPortsFromConfig(config otelv1beta1.Config) []collectorProtocolPort {
-	portProtocols := make(map[uint32]bool)
-	receivers := config.Receivers.Object
-
-	for _, r := range receivers {
-		rm, ok := r.(map[string]any)
-		if !ok {
-			continue
-		}
-
-		if receiverEndpoint, ok := rm["endpoint"].(string); ok {
-			if port := extractPort(receiverEndpoint); port != 0 {
-				if _, exists := portProtocols[port]; !exists {
-					portProtocols[port] = false
-				}
-			}
-		}
-
-		if protocols, ok := rm["protocols"].(map[string]any); ok {
-			for protocolName, p := range protocols {
-				pm, ok := p.(map[string]any)
-				if !ok {
-					continue
-				}
-				if protocolEndpoint, ok := pm["endpoint"].(string); ok {
-					if port := extractPort(protocolEndpoint); port != 0 {
-						portProtocols[port] = portProtocols[port] || strings.EqualFold(protocolName, "grpc")
-					}
-				}
-			}
-		}
-	}
-
-	ports := make([]collectorProtocolPort, 0, len(portProtocols))
-	for port, enableHTTP2 := range portProtocols {
-		ports = append(ports, collectorProtocolPort{
-			port:        port,
-			enableHTTP2: enableHTTP2,
-		})
-	}
-	slices.SortFunc(ports, func(a, b collectorProtocolPort) int {
-		if a.port < b.port {
-			return -1
-		}
-		if a.port > b.port {
-			return 1
-		}
-		return 0
-	})
-	return ports
-}
-
-func extractPort(addr string) uint32 {
-	var port uint32
-	_, _ = fmt.Sscanf(addr, "0.0.0.0:%d", &port)
-	if port == 0 {
-		_, _ = fmt.Sscanf(addr, ":%d", &port)
-	}
-	if port == 0 {
-		_, _ = fmt.Sscanf(addr, "%d", &port)
-	}
-	return port
 }
