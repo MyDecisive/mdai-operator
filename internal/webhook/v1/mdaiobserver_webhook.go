@@ -19,8 +19,9 @@ var mdaiobserverlog = logf.Log.WithName("mdaiobserver-resource")
 
 // SetupMdaiObserverWebhookWithManager registers the webhook for MdaiObserver in the manager.
 func SetupMdaiObserverWebhookWithManager(mgr ctrl.Manager) error {
-	return ctrl.NewWebhookManagedBy(mgr).For(&mdaiv1.MdaiObserver{}).
-		WithValidator(&MdaiObserverCustomValidator{}).
+	//nolint:staticcheck // keep deprecated interface for type-safety test coverage
+	return ctrl.NewWebhookManagedBy(mgr, &mdaiv1.MdaiObserver{}).
+		WithCustomValidator(&MdaiObserverCustomValidator{}).
 		Complete()
 }
 
@@ -38,7 +39,7 @@ type MdaiObserverCustomValidator struct {
 	// TODO(user): Add more fields as needed for validation
 }
 
-var _ webhook.CustomValidator = &MdaiObserverCustomValidator{}
+var _ webhook.CustomValidator = &MdaiObserverCustomValidator{} //nolint:staticcheck // keep deprecated interface for type-safety test coverage
 
 // ValidateCreate implements webhook.CustomValidator so a webhook will be registered for the type MdaiObserver.
 func (v *MdaiObserverCustomValidator) ValidateCreate(_ context.Context, obj runtime.Object) (admission.Warnings, error) {
