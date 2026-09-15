@@ -24,6 +24,7 @@ var mdaiIngresslog = logf.Log.WithName("mdaiingress-resource")
 
 // SetupMdaiIngressWebhookWithManager registers the webhook for MdaiIngress in the manager.
 func SetupMdaiIngressWebhookWithManager(mgr ctrl.Manager) error {
+	//nolint:staticcheck // keep deprecated interface for type-safety test coverage
 	return ctrl.NewWebhookManagedBy(mgr, &mdaiv1.MdaiIngress{}).
 		WithCustomValidator(&MdaiIngressCustomValidator{client: mgr.GetClient()}).
 		WithCustomDefaulter(&MdaiIngressCustomDefaulter{}).

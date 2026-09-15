@@ -36,6 +36,7 @@ var (
 
 // SetupMdaiCollectorWebhookWithManager registers the webhook for MdaiCollector in the manager.
 func SetupMdaiCollectorWebhookWithManager(mgr ctrl.Manager) error {
+	//nolint:staticcheck // keep deprecated interface for type-safety test coverage
 	return ctrl.NewWebhookManagedBy(mgr, &mdaiv1.MdaiCollector{}).
 		WithCustomValidator(&MdaiCollectorCustomValidator{}).
 		Complete()
