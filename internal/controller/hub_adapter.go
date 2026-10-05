@@ -531,7 +531,7 @@ var (
 // (yaml error, or indirection like `${env:${PREFIX}_FOO}`); callers must then treat the
 // collector as consuming every variable.
 func extractCollectorEnvRefs(collector v1beta1.OpenTelemetryCollector) (map[string]struct{}, bool) {
-	cfg, err := collector.Spec.Config.Yaml()
+	cfg, err := mdaiv1.ConfigYaml(&collector.Spec.Config)
 	if err != nil {
 		return nil, true
 	}

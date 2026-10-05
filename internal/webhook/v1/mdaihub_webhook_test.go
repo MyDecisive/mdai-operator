@@ -220,7 +220,7 @@ var _ = Describe("MdaiHub Webhook", func() {
 		It("Should deny creation if variable keys are duplicated", func() {
 			By("simulating an invalid creation scenario")
 			obj := createSampleMdaiHub()
-			(obj.Spec.Variables)[0].Key = "service_list_2"
+			obj.Spec.Variables[0].Key = "service_list_2"
 			_, err := validator.ValidateCreate(ctx, obj)
 			Expect(err).Error().To(HaveOccurred())
 			Expect(err).To(MatchError(ContainSubstring(`"mdaihub-sample" is invalid: [spec.variables[1].key: Duplicate value: "service_list_2"`)))
@@ -237,7 +237,7 @@ var _ = Describe("MdaiHub Webhook", func() {
 		It("Should fail creation if expr does not validate", func() {
 			By("simulating an invalid creation scenario")
 			obj := createSampleMdaiHub()
-			(obj.Spec.PrometheusAlerts)[0].Expr = intstr.FromString("increaser(mdai_log_bytes_sent_total[1h]) > 100*1024*1024")
+			obj.Spec.PrometheusAlerts[0].Expr = intstr.FromString("increaser(mdai_log_bytes_sent_total[1h]) > 100*1024*1024")
 			warnings, err := validator.ValidateCreate(ctx, obj)
 			Expect(err).To(HaveOccurred())
 			Expect(err).To(MatchError(ContainSubstring(`parse error: unknown function with name "increaser"`)))
@@ -248,7 +248,7 @@ var _ = Describe("MdaiHub Webhook", func() {
 			By("simulating a valid update scenario")
 			oldObj = createSampleMdaiHub()
 			obj := createSampleMdaiHub()
-			(obj.Spec.Variables)[1].Key = "service_list_3"
+			obj.Spec.Variables[1].Key = "service_list_3"
 			warnings, err := validator.ValidateUpdate(ctx, oldObj, obj)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(warnings).To(Equal(admission.Warnings{}))
@@ -257,7 +257,7 @@ var _ = Describe("MdaiHub Webhook", func() {
 		It("Should fail validation if references changed", func() {
 			oldObj = createSampleMdaiHub()
 			obj := createSampleMdaiHub()
-			(obj.Spec.Variables)[6].VariableRefs[0] = "service_list_3"
+			obj.Spec.Variables[6].VariableRefs[0] = "service_list_3"
 			warnings, err := validator.ValidateUpdate(ctx, oldObj, obj)
 			Expect(err).To(MatchError(ContainSubstring(`meta variable references must not change; delete and recreate the variable to update references`)))
 			Expect(warnings).To(BeEmpty())
@@ -265,7 +265,7 @@ var _ = Describe("MdaiHub Webhook", func() {
 
 		It("Should fail if no references provided for meta variable", func() {
 			obj := createSampleMdaiHub()
-			(obj.Spec.Variables)[6].VariableRefs = nil
+			obj.Spec.Variables[6].VariableRefs = nil
 			warnings, err := validator.ValidateCreate(ctx, obj)
 			Expect(err).To(MatchError(ContainSubstring(`spec.variables[6].variableRefs: Required value: required for meta variable`)))
 			Expect(warnings).To(BeEmpty())
@@ -273,7 +273,7 @@ var _ = Describe("MdaiHub Webhook", func() {
 
 		It("Should fail if references provided for non meta variable", func() {
 			obj := createSampleMdaiHub()
-			(obj.Spec.Variables)[1].VariableRefs = []string{"ref1"}
+			obj.Spec.Variables[1].VariableRefs = []string{"ref1"}
 			warnings, err := validator.ValidateCreate(ctx, obj)
 			Expect(err).To(MatchError(ContainSubstring(`MdaiHub.hub.mydecisive.ai "mdaihub-sample" is invalid: spec.variables[1].variableRefs: Forbidden: not supported for non-meta variables`)))
 			Expect(warnings).To(BeEmpty())
@@ -281,7 +281,7 @@ var _ = Describe("MdaiHub Webhook", func() {
 
 		It("Should fail if more than two ref provided for hashmap", func() {
 			obj := createSampleMdaiHub()
-			(obj.Spec.Variables)[7].VariableRefs = []string{"ref1", "ref2", "ref3"}
+			obj.Spec.Variables[7].VariableRefs = []string{"ref1", "ref2", "ref3"}
 			warnings, err := validator.ValidateCreate(ctx, obj)
 			Expect(err).To(MatchError(ContainSubstring(`MdaiHub.hub.mydecisive.ai "mdaihub-sample" is invalid: spec.variables[7].variableRefs: Invalid value: ["ref1","ref2","ref3"]: Meta HashSet must have exactly 2 elements`)))
 			Expect(warnings).To(BeEmpty())
@@ -383,7 +383,7 @@ var _ = Describe("MdaiHub Webhook", func() {
 
 		It("Should fail if exported variable name is duplicated", func() {
 			obj := createSampleMdaiHub()
-			(*(obj.Spec.Variables)[7].SerializeAs)[0].Name = "SERVICE_LIST_CSV"
+			(*obj.Spec.Variables[7].SerializeAs)[0].Name = "SERVICE_LIST_CSV"
 			warnings, err := validator.ValidateCreate(ctx, obj)
 			Expect(err).To(MatchError(ContainSubstring(`MdaiHub.hub.mydecisive.ai "mdaihub-sample" is invalid: spec.variables[7].serializeAs[0].name: Duplicate value: "SERVICE_LIST_CSV"`)))
 			Expect(warnings).To(BeEmpty())
@@ -391,7 +391,7 @@ var _ = Describe("MdaiHub Webhook", func() {
 
 		It("Should fail if transformers specified for boolean", func() {
 			obj := createSampleMdaiHub()
-			(*(obj.Spec.Variables)[3].SerializeAs)[0].Transformers = []mdaiv1.VariableTransformer{
+			(*obj.Spec.Variables[3].SerializeAs)[0].Transformers = []mdaiv1.VariableTransformer{
 				{
 					Type: mdaiv1.TransformerTypeJoin,
 					Join: &mdaiv1.JoinTransformer{

@@ -286,7 +286,7 @@ func main() {
 	if err = (&controller.MdaiCollectorReconciler{
 		Client:   mgr.GetClient(),
 		Scheme:   mgr.GetScheme(),
-		Recorder: mgr.GetEventRecorderFor("mdaicollector-controller"),
+		Recorder: mgr.GetEventRecorderFor("mdaicollector-controller"), //nolint:staticcheck // GetEventRecorder returns a different interface type; migrating is a separate task
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "MdaiCollector")
 		gracefullyShutdownWithCode(1)
