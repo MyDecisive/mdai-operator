@@ -93,15 +93,15 @@ test-e2e: manifests generate fmt vet ## Run the e2e tests. Expected an isolated 
 
 .PHONY: lint
 lint: golangci-lint ## Run golangci-lint linter
-	$(GOLANGCI_LINT) run
+	GOTOOLCHAIN=$(GOTOOLCHAIN) $(GOLANGCI_LINT) run
 
 .PHONY: lint-fix
 lint-fix: golangci-lint ## Run golangci-lint linter and perform fixes
-	$(GOLANGCI_LINT) run --fix
+	GOTOOLCHAIN=$(GOTOOLCHAIN) $(GOLANGCI_LINT) run --fix
 
 .PHONY: lint-config
 lint-config: golangci-lint ## Verify golangci-lint linter configuration
-	$(GOLANGCI_LINT) config verify
+	GOTOOLCHAIN=$(GOTOOLCHAIN) $(GOLANGCI_LINT) config verify
 
 .PHONY: fix
 fix:
@@ -209,17 +209,27 @@ $(LOCALBIN):
 
 ## Tool Binaries
 KUBECTL ?= kubectl
-KUSTOMIZE ?= $(LOCALBIN)/kustomize
-CONTROLLER_GEN ?= $(LOCALBIN)/controller-gen
-ENVTEST ?= $(LOCALBIN)/setup-envtest
+# Go-built tools are managed with `go tool` via a separate modfile so their
+# dependencies never mix with the operator's go.mod. `go tool -n` builds into the Go build cache and prints the path.
+# Change tool versions only with `make tools-update`; never run `go mod tidy -modfile=$(TOOLS_MODFILE)`, as it
+# would pull the operator's own imports into the tool modfile.
+TOOLS_MODFILE ?= go.tool.mod
+GO_TOOL := $(GO) tool -modfile=$(TOOLS_MODFILE)
+KUSTOMIZE ?= $(shell $(GO_TOOL) -n kustomize)
+CONTROLLER_GEN ?= $(shell $(GO_TOOL) -n controller-gen)
+ENVTEST ?= $(shell $(GO_TOOL) -n setup-envtest)
+HELMIFY ?= $(shell $(GO_TOOL) -n helmify)
+HELM_DOCS ?= $(shell $(GO_TOOL) -n helm-docs)
+HELM ?= $(shell $(GO_TOOL) -n helm)
+# golangci-lint is not built from source (upstream recommends release binaries); this matches CI's binary install.
+# The lint targets run it under $(GOTOOLCHAIN): a release binary can't read export data from a newer Go than it was built with.
 GOLANGCI_LINT ?= $(LOCALBIN)/golangci-lint
-HELMIFY ?= $(LOCALBIN)/helmify
-HELM_DOCS = $(LOCALBIN)/helm-docs
-HELM ?= $(LOCALBIN)/helm
 HELM_PLUGINS ?= $(LOCALBIN)/helm-plugins
 export HELM_PLUGINS
 YQ ?= $(LOCALBIN)/yq
 UNAME := $(shell uname -s)
+TOOLS_OS := $(shell uname -s | tr '[:upper:]' '[:lower:]')
+TOOLS_ARCH := $(shell uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/')
 
 ## Tool Versions
 KUSTOMIZE_VERSION ?= v5.8.0
@@ -235,19 +245,19 @@ HELM_VERSION ?= v3.19.4
 YQ_VERSION ?= v4.45.4
 
 YQ_VERSIONED := $(YQ)-$(YQ_VERSION)
+GOLANGCI_LINT_RELEASE := golangci-lint-$(GOLANGCI_LINT_VERSION:v%=%)-$(TOOLS_OS)-$(TOOLS_ARCH)
+GOLANGCI_LINT_VERSIONED := $(LOCALBIN)/$(GOLANGCI_LINT_RELEASE)
 
 .PHONY: kustomize
-kustomize: $(KUSTOMIZE) ## Download kustomize locally if necessary.
-$(KUSTOMIZE): $(LOCALBIN)
-	$(call go-install-tool,$(KUSTOMIZE),sigs.k8s.io/kustomize/kustomize/v5,$(KUSTOMIZE_VERSION))
+kustomize: ## Build kustomize (version pinned in go.tool.mod).
+	@$(GO_TOOL) -n kustomize >/dev/null
 
 .PHONY: controller-gen
-controller-gen: $(CONTROLLER_GEN) ## Download controller-gen locally if necessary.
-$(CONTROLLER_GEN): $(LOCALBIN)
-	$(call go-install-tool,$(CONTROLLER_GEN),sigs.k8s.io/controller-tools/cmd/controller-gen,$(CONTROLLER_TOOLS_VERSION))
+controller-gen: ## Build controller-gen (version pinned in go.tool.mod).
+	@$(GO_TOOL) -n controller-gen >/dev/null
 
 .PHONY: setup-envtest
-setup-envtest: envtest ## Download the binaries required for ENVTEST in the local bin directory.
+setup-envtest: envtest $(LOCALBIN) ## Download the binaries required for ENVTEST in the local bin directory.
 	@echo "Setting up envtest binaries for Kubernetes version $(ENVTEST_K8S_VERSION)..."
 	@$(ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(LOCALBIN) -p path || { \
 		echo "Error: Failed to set up envtest binaries for version $(ENVTEST_K8S_VERSION)."; \
@@ -255,30 +265,45 @@ setup-envtest: envtest ## Download the binaries required for ENVTEST in the loca
 	}
 
 .PHONY: envtest
-envtest: $(ENVTEST) ## Download setup-envtest locally if necessary.
-$(ENVTEST): $(LOCALBIN)
-	$(call go-install-tool,$(ENVTEST),sigs.k8s.io/controller-runtime/tools/setup-envtest,$(ENVTEST_VERSION))
+envtest: ## Build setup-envtest (version pinned in go.tool.mod).
+	@$(GO_TOOL) -n setup-envtest >/dev/null
+
+.PHONY: tools-update
+tools-update: ## Pin the go tool versions above into go.tool.mod.
+	$(GO) get -tool -modfile=$(TOOLS_MODFILE) \
+		sigs.k8s.io/kustomize/kustomize/v5@$(KUSTOMIZE_VERSION) \
+		sigs.k8s.io/controller-tools/cmd/controller-gen@$(CONTROLLER_TOOLS_VERSION) \
+		sigs.k8s.io/controller-runtime/tools/setup-envtest@$(ENVTEST_VERSION) \
+		github.com/arttor/helmify/cmd/helmify@$(HELMIFY_VERSION) \
+		github.com/norwoodj/helm-docs/cmd/helm-docs@$(HELM_DOCS_VERSION) \
+		helm.sh/helm/v3/cmd/helm@$(HELM_VERSION)
 
 .PHONY: golangci-lint
-golangci-lint: $(GOLANGCI_LINT) ## Download golangci-lint locally if necessary.
-$(GOLANGCI_LINT): $(LOCALBIN)
-	$(call go-install-tool,$(GOLANGCI_LINT),github.com/golangci/golangci-lint/v2/cmd/golangci-lint,$(GOLANGCI_LINT_VERSION))
+golangci-lint: $(GOLANGCI_LINT_VERSIONED) ## Download the golangci-lint release binary for this OS/arch if necessary.
+	@ln -sf $(GOLANGCI_LINT_VERSIONED) $(GOLANGCI_LINT)
+
+# Release assets are named golangci-lint-<version>-<os>-<arch>.tar.gz; verified against the release checksums.
+$(GOLANGCI_LINT_VERSIONED): | $(LOCALBIN)
+	@set -e; \
+	base=https://github.com/golangci/golangci-lint/releases/download/$(GOLANGCI_LINT_VERSION); \
+	tmp=$$(mktemp -d); trap 'rm -rf "$$tmp"' EXIT; \
+	echo "Downloading $(GOLANGCI_LINT_RELEASE)"; \
+	curl -sSLf "$$base/$(GOLANGCI_LINT_RELEASE).tar.gz" -o "$$tmp/$(GOLANGCI_LINT_RELEASE).tar.gz"; \
+	curl -sSLf "$$base/golangci-lint-$(GOLANGCI_LINT_VERSION:v%=%)-checksums.txt" -o "$$tmp/checksums.txt"; \
+	(cd "$$tmp" && grep " $(GOLANGCI_LINT_RELEASE).tar.gz$$" checksums.txt | shasum -a 256 -c - >/dev/null); \
+	tar -xzf "$$tmp/$(GOLANGCI_LINT_RELEASE).tar.gz" -C "$$tmp"; \
+	mv "$$tmp/$(GOLANGCI_LINT_RELEASE)/golangci-lint" $@
 
 .PHONY: helmify
-helmify: $(HELMIFY) ## Download helmify locally if necessary.
-$(HELMIFY): $(LOCALBIN)
-	$(call go-install-tool,$(HELMIFY),github.com/arttor/helmify/cmd/helmify,$(HELMIFY_VERSION))
+helmify: ## Build helmify (version pinned in go.tool.mod).
+	@$(GO_TOOL) -n helmify >/dev/null
 
 .PHONY: helm-docs
-helm-docs: $(HELM_DOCS) ## Download helm-docs locally if necessary.
-$(HELM_DOCS): $(LOCALBIN)
-	$(call go-install-tool,$(HELM_DOCS),github.com/norwoodj/helm-docs/cmd/helm-docs,$(HELM_DOCS_VERSION))
-
-$(HELM): $(LOCALBIN)
-	$(call go-install-tool,$(HELM),helm.sh/helm/v3/cmd/helm,$(HELM_VERSION))
+helm-docs: ## Build helm-docs (version pinned in go.tool.mod).
+	@$(GO_TOOL) -n helm-docs >/dev/null
 
 .PHONY: helm-values-schema-json-plugin
-helm-values-schema-json-plugin: $(HELM)
+helm-values-schema-json-plugin:
 	@mkdir -p $(HELM_PLUGINS)
 	@$(HELM) plugin list | grep -q '^schema' || \
 		$(HELM) plugin install https://github.com/losisin/helm-values-schema-json.git
@@ -293,22 +318,6 @@ yq:
 		chmod +x "$(YQ_VERSIONED)"; \
 	fi
 	@ln -sf $(YQ_VERSIONED) $(YQ)
-
-# go-install-tool will 'go install' any package with custom target and name of binary, if it doesn't exist
-# $1 - target path with name of binary
-# $2 - package url which can be installed
-# $3 - specific version of package
-define go-install-tool
-@[ -f "$(1)-$(3)" ] || { \
-set -e; \
-package=$(2)@$(3) ;\
-echo "Downloading $${package}" ;\
-rm -f $(1) || true ;\
-GOBIN=$(LOCALBIN) go install $${package} ;\
-mv $(1) $(1)-$(3) ;\
-} ;\
-ln -sf $(1)-$(3) $(1)
-endef
 
 .PHONY: local-deploy
 local-deploy: IMG=mdai-operator:${VERSION}
