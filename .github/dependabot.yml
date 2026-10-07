@@ -1,0 +1,15 @@
+version: 2
+updates:
+  # Go modules: security updates only, grouped into a single pull request.
+  # A schedule is required by the config format; open-pull-requests-limit: 0
+  # disables routine version updates without affecting security updates.
+  - package-ecosystem: gomod
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 0
+    groups:
+      security:
+        applies-to: security-updates
+        patterns:
+          - "*"
