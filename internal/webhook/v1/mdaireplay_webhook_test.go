@@ -5,7 +5,6 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	hubv1 "github.com/mydecisive/mdai-operator/api/v1"
@@ -449,32 +448,6 @@ func TestMdaiReplayCustomValidator_ValidateDelete(t *testing.T) {
 	warnings, err := validator.ValidateDelete(ctx, replay)
 	require.NoError(t, err)
 	assert.Empty(t, warnings)
-}
-
-func TestMdaiReplayCustomValidator_ValidateCreate_WrongType(t *testing.T) {
-	validator := &MdaiReplayCustomValidator{}
-	ctx := t.Context()
-
-	wrongObject := &corev1.Pod{}
-	warnings, err := validator.ValidateCreate(ctx, wrongObject)
-
-	require.Error(t, err)
-	assert.Nil(t, warnings)
-	assert.Contains(t, err.Error(), "expected a MdaiReplay object but got")
-}
-
-func TestMdaiReplayCustomValidator_ValidateUpdate_WrongType(t *testing.T) {
-	validator := &MdaiReplayCustomValidator{}
-	ctx := t.Context()
-
-	validReplay := &hubv1.MdaiReplay{}
-	wrongObject := &corev1.Pod{}
-
-	warnings, err := validator.ValidateUpdate(ctx, validReplay, wrongObject)
-
-	require.Error(t, err)
-	assert.Nil(t, warnings)
-	assert.Contains(t, err.Error(), "expected a MdaiReplay object for the newObj but got")
 }
 
 func TestValidateTimeStr(t *testing.T) {

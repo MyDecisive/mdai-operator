@@ -910,18 +910,6 @@ var _ = Describe("MdaiHub Webhook", func() {
 			})
 		})
 
-		It("Should return an error when the object passed to the defaulter is not an MdaiHub type", func() {
-			By("creating an object of a different type")
-			notAnMdaiHub := &corev1.Pod{}
-
-			By("calling the Default method with the wrong object type")
-			err := defaulter.Default(admission.NewContextWithRequest(ctx, admission.Request{}), notAnMdaiHub)
-
-			By("checking that an error is returned")
-			Expect(err).To(HaveOccurred())
-			Expect(err.Error()).To(Equal("expected an MdaiHub object but got *v1.Pod"))
-		})
-
 		It("Should not return an error when a valid MdaiHub object is passed", func() {
 			By("creating a valid MdaiHub object")
 			obj = createSampleMdaiHub()
@@ -942,19 +930,6 @@ var _ = Describe("MdaiHub Webhook", func() {
 
 			By("checking that no error is returned")
 			Expect(err).ToNot(HaveOccurred())
-		})
-
-		It("Should return an error when the object passed to ValidateDelete is not an MdaiHub type", func() {
-			By("creating a non-MdaiHub object")
-			invalidObj := &corev1.Pod{}
-
-			By("calling ValidateDelete with the invalid object")
-			warnings, err := validator.ValidateDelete(ctx, invalidObj)
-
-			By("checking that an error is returned and warnings are nil")
-			Expect(err).To(HaveOccurred())
-			Expect(err.Error()).To(Equal("expected a MdaiHub object but got *v1.Pod"))
-			Expect(warnings).To(BeNil())
 		})
 
 		It("Should not return an error when a valid MdaiHub object is passed to ValidateDelete", func() {

@@ -175,3 +175,41 @@ spec:
 		})
 	}
 }
+
+func TestGetPortsWithUrlPathsForComponentKinds_IgnoresConfiguredButDisabledReceivers(t *testing.T) {
+	const configYaml = `receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+  jaeger:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:14250
+exporters:
+  debug:
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      exporters: [debug]
+`
+	var config v1beta1.Config
+	require.NoError(t, goyaml.Unmarshal([]byte(configYaml), &config))
+
+	comb := OtelMdaiIngressComb{
+		Otelcol: v1beta1.OpenTelemetryCollector{
+			Spec: v1beta1.OpenTelemetryCollectorSpec{
+				Config: config,
+			},
+		},
+	}
+
+	got, err := comb.GetReceiverPortsWithUrlPaths(zap.NewNop())
+	require.NoError(t, err)
+
+	require.Contains(t, got, "otlp")
+	require.NotContains(t, got, "jaeger")
+	require.Len(t, got["otlp"], 1)
+	require.NotEmpty(t, got["otlp"][0].UrlPaths)
+}

@@ -7,10 +7,8 @@ import (
 	"slices"
 	"time"
 
-	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
-	"sigs.k8s.io/controller-runtime/pkg/webhook"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	hubv1 "github.com/mydecisive/mdai-operator/api/v1"
@@ -28,9 +26,8 @@ var mdaireplaylog = logf.Log.WithName("mdaireplay-resource")
 
 // SetupMdaiReplayWebhookWithManager registers the webhook for MdaiReplay in the manager.
 func SetupMdaiReplayWebhookWithManager(mgr ctrl.Manager) error {
-	//nolint:staticcheck // keep deprecated interface for type-safety test coverage
 	return ctrl.NewWebhookManagedBy(mgr, &hubv1.MdaiReplay{}).
-		WithCustomValidator(&MdaiReplayCustomValidator{}).
+		WithValidator(&MdaiReplayCustomValidator{}).
 		Complete()
 }
 
@@ -48,14 +45,10 @@ type MdaiReplayCustomValidator struct {
 	// TODO(user): Add more fields as needed for validation
 }
 
-var _ webhook.CustomValidator = &MdaiReplayCustomValidator{} //nolint:staticcheck // keep deprecated interface for type-safety test coverage
+var _ admission.Validator[*hubv1.MdaiReplay] = &MdaiReplayCustomValidator{}
 
-// ValidateCreate implements webhook.CustomValidator so a webhook will be registered for the type MdaiReplay.
-func (*MdaiReplayCustomValidator) ValidateCreate(ctx context.Context, obj runtime.Object) (admission.Warnings, error) {
-	mdaireplay, ok := obj.(*hubv1.MdaiReplay)
-	if !ok {
-		return nil, fmt.Errorf("expected a MdaiReplay object but got %T", obj)
-	}
+// ValidateCreate implements admission.Validator so a webhook will be registered for the type MdaiReplay.
+func (*MdaiReplayCustomValidator) ValidateCreate(ctx context.Context, mdaireplay *hubv1.MdaiReplay) (admission.Warnings, error) {
 	mdaireplaylog.Info("Validation for MdaiReplay upon creation", "name", mdaireplay.GetName())
 
 	var warnings admission.Warnings
@@ -70,12 +63,8 @@ func (*MdaiReplayCustomValidator) ValidateCreate(ctx context.Context, obj runtim
 	return nil, nil
 }
 
-// ValidateUpdate implements webhook.CustomValidator so a webhook will be registered for the type MdaiReplay.
-func (*MdaiReplayCustomValidator) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.Object) (admission.Warnings, error) {
-	mdaireplay, ok := newObj.(*hubv1.MdaiReplay)
-	if !ok {
-		return nil, fmt.Errorf("expected a MdaiReplay object for the newObj but got %T", newObj)
-	}
+// ValidateUpdate implements admission.Validator so a webhook will be registered for the type MdaiReplay.
+func (*MdaiReplayCustomValidator) ValidateUpdate(ctx context.Context, _, mdaireplay *hubv1.MdaiReplay) (admission.Warnings, error) {
 	mdaireplaylog.Info("Validation for MdaiReplay upon update", "name", mdaireplay.GetName())
 
 	var warnings admission.Warnings
@@ -90,9 +79,9 @@ func (*MdaiReplayCustomValidator) ValidateUpdate(ctx context.Context, oldObj, ne
 	return warnings, nil
 }
 
-// ValidateDelete implements webhook.CustomValidator so a webhook will be registered for the type MdaiReplay.
-func (*MdaiReplayCustomValidator) ValidateDelete(ctx context.Context, obj runtime.Object) (admission.Warnings, error) {
-	// deletion validation not used at this time, but method is retained to conform to the webhook.CustomValidator interface
+// ValidateDelete implements admission.Validator so a webhook will be registered for the type MdaiReplay.
+func (*MdaiReplayCustomValidator) ValidateDelete(_ context.Context, _ *hubv1.MdaiReplay) (admission.Warnings, error) {
+	// deletion validation not used at this time, but method is retained to conform to the admission.Validator interface
 	return nil, nil
 }
 
