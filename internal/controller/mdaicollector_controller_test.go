@@ -72,9 +72,10 @@ var _ = Describe("MdaiCollector Controller", func() {
 
 var _ = Describe("MdaiCollector Controller", func() {
 	var (
-		ctx       context.Context
-		cancel    context.CancelFunc
-		namespace = "default"
+		ctx        context.Context
+		cancel     context.CancelFunc
+		mgrStopped chan struct{}
+		namespace  = "default"
 	)
 
 	BeforeEach(func() {
@@ -92,14 +93,18 @@ var _ = Describe("MdaiCollector Controller", func() {
 		}
 		Expect(reconciler.SetupWithManager(mgr)).To(Succeed())
 
+		mgrStopped = make(chan struct{})
 		go func() {
 			defer GinkgoRecover()
+			defer close(mgrStopped)
 			Expect(mgr.Start(ctx)).To(Succeed())
 		}()
 	})
 
 	AfterEach(func() {
 		cancel()
+		// Wait for the manager to shut down so it doesn't overlap with the next spec.
+		Eventually(mgrStopped).Should(BeClosed())
 	})
 
 	It("should create a Deployment with expected tolerations", func() {
@@ -119,13 +124,12 @@ var _ = Describe("MdaiCollector Controller", func() {
 
 		By("verifying that a Deployment was created")
 		deploy := &appsv1.Deployment{}
-		Eventually(func(g Gomega) bool {
-			err := k8sClient.Get(ctx, types.NamespacedName{
+		Eventually(func(g Gomega) {
+			g.Expect(k8sClient.Get(ctx, types.NamespacedName{
 				Name:      "test-collector-mdai-collector",
 				Namespace: namespace,
-			}, deploy)
-			return err == nil
-		}).Should(BeTrue())
+			}, deploy)).To(Succeed())
+		}).Should(Succeed())
 
 		Expect(deploy.Spec.Template.Spec.Tolerations).To(ContainElement(corev1.Toleration{
 			Key:      "dedicated",
@@ -146,13 +150,12 @@ var _ = Describe("MdaiCollector Controller", func() {
 
 		By("verifying that a Deployment was created")
 		deploy = &appsv1.Deployment{}
-		Eventually(func(g Gomega) bool {
-			err := k8sClient.Get(ctx, types.NamespacedName{
+		Eventually(func(g Gomega) {
+			g.Expect(k8sClient.Get(ctx, types.NamespacedName{
 				Name:      "test-collector-no-tolerations-mdai-collector",
 				Namespace: namespace,
-			}, deploy)
-			return err == nil
-		}).Should(BeTrue())
+			}, deploy)).To(Succeed())
+		}).Should(Succeed())
 
 		Expect(deploy.Spec.Template.Spec.Tolerations).To(BeEmpty())
 	})
