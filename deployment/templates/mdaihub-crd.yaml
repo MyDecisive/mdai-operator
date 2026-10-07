@@ -702,7 +702,10 @@ spec:
                   - type
                   type: object
                   x-kubernetes-validations:
-                  - rule: 'self.type == ''meta'' ? self.dataType in [''metaHashSet'',
+                  - messageExpression: '"variable ''" + self.key + "'': dataType is
+                      not allowed for type specified"'
+                    reason: FieldValueInvalid
+                    rule: 'self.type == ''meta'' ? self.dataType in [''metaHashSet'',
                       ''metaPriorityList''] : self.dataType in [''string'', ''int'',
                       ''float'', ''boolean'', ''set'', ''map'']'
                 type: array

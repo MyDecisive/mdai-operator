@@ -1,18 +1,19 @@
 name: Chores
 
 on:
+  # Every push to main (not just Go changes) refreshes the shared Go cache that PR runs restore from.
   push:
     branches: [ "main" ]
-    paths:
-      - '**/*.go'
-      - 'go.mod'
-      - 'go.sum'
+  # Manual trigger to re-warm the cache after a quiet week (unused caches are evicted after 7 days).
+  workflow_dispatch:
   pull_request:
     branches: [ "main" ]
     paths:
       - '**/*.go'
       - 'go.mod'
       - 'go.sum'
+      - 'go.tool.mod'
+      - 'go.tool.sum'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
@@ -49,16 +50,30 @@ jobs:
           go-version-file: go.mod
           cache: false
 
-      - name: Cache Go mod and build cache
-        uses: actions/cache@v6
+      # PR caches are only visible to the same PR, so only main saves (see the save step below);
+      # every run restores the main-branch cache.
+      - name: Restore Go mod and build cache
+        id: go-cache
+        uses: actions/cache/restore@v6
         with:
           path: |
             ~/.cache/go-build
             ~/go/pkg/mod
-          key: ${{ runner.os }}-go-${{ steps.setup-go.outputs.go-version }}-${{ hashFiles('**/go.sum') }}
+          key: ${{ runner.os }}-go-${{ steps.setup-go.outputs.go-version }}-${{ hashFiles('**/go.sum', 'go.tool.sum') }}
           restore-keys: |
             ${{ runner.os }}-go-${{ steps.setup-go.outputs.go-version }}-
             ${{ runner.os }}-go-
+
+      # go tools (go.tool.mod) are covered by the Go build cache; this only caches the envtest
+      # control-plane binaries, whose Kubernetes version is derived from k8s.io/api in go.mod.
+      - name: Restore envtest binaries
+        id: envtest-cache
+        uses: actions/cache/restore@v6
+        with:
+          path: bin/k8s
+          key: ${{ runner.os }}-envtest-${{ hashFiles('go.mod') }}
+          restore-keys: |
+            ${{ runner.os }}-envtest-
 
       - name: Download dependencies
         run: |
@@ -83,19 +98,47 @@ jobs:
           token: ${{ secrets.CODECOV_TOKEN }}
           verbose: true
 
+      - name: Save envtest binaries
+        if: github.ref == 'refs/heads/main' && steps.envtest-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6
+        with:
+          path: bin/k8s
+          key: ${{ steps.envtest-cache.outputs.cache-primary-key }}
+
+      - name: Save Go mod and build cache
+        if: github.ref == 'refs/heads/main' && steps.go-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: ${{ steps.go-cache.outputs.cache-primary-key }}
+
   test-e2e:
     name: E2E tests on Ubuntu
-    needs: [ lint-and-test ]
-    if: needs.lint-and-test.result == 'success'
     runs-on: ubuntu-latest
     steps:
       - name: Clone the code
         uses: actions/checkout@v7
 
       - name: Setup Go
+        id: setup-go
         uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
+          cache: false
+
+      # Restore-only: shares the cache saved by lint-and-test on main.
+      - name: Restore Go mod and build cache
+        uses: actions/cache/restore@v6
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: ${{ runner.os }}-go-${{ steps.setup-go.outputs.go-version }}-${{ hashFiles('**/go.sum', 'go.tool.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-${{ steps.setup-go.outputs.go-version }}-
+            ${{ runner.os }}-go-
 
       - name: Set up kind
         uses: helm/kind-action@v1.14.0
