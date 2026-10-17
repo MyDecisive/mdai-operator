@@ -19,6 +19,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 
 	hubv1 "github.com/mydecisive/mdai-operator/api/v1"
+	"github.com/mydecisive/mdai-operator/internal/collectorconfig"
 )
 
 func TestReconcileValidatorLifecycle(t *testing.T) {
@@ -327,6 +328,85 @@ func TestResolveValidatorIngressPortsResolvesEnvironmentEndpointPorts(t *testing
 	}
 }
 
+func TestResolveValidatorIngressPortsReadsReferencedConfigMapsWithAPIReader(t *testing.T) {
+	t.Parallel()
+
+	scheme := runtime.NewScheme()
+	require.NoError(t, hubv1.AddToScheme(scheme))
+	require.NoError(t, otelv1beta1.AddToScheme(scheme))
+	require.NoError(t, corev1.AddToScheme(scheme))
+
+	tv := &hubv1.TelemetryValidation{
+		ObjectMeta: metav1.ObjectMeta{Name: "sample", Namespace: "mdai"},
+		Spec: hubv1.TelemetryValidationSpec{
+			CollectorRef: hubv1.TelemetryValidationCollectorRef{Name: "gateway"},
+		},
+	}
+	collector := &otelv1beta1.OpenTelemetryCollector{
+		ObjectMeta: metav1.ObjectMeta{Name: "gateway", Namespace: "mdai"},
+		Spec: otelv1beta1.OpenTelemetryCollectorSpec{
+			OpenTelemetryCommonFields: otelv1beta1.OpenTelemetryCommonFields{
+				EnvFrom: []corev1.EnvFromSource{{
+					ConfigMapRef: &corev1.ConfigMapEnvSource{
+						LocalObjectReference: corev1.LocalObjectReference{Name: "collector-ports"},
+					},
+				}},
+			},
+			Config: otelv1beta1.Config{
+				Receivers: otelv1beta1.AnyConfig{Object: map[string]any{
+					"datadog": map[string]any{"endpoint": "0.0.0.0:${env:PORT}"},
+				}},
+			},
+		},
+	}
+	// An unlabelled, user-owned ConfigMap is invisible to the manager's label-filtered cache.
+	userConfigMap := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{Name: "collector-ports", Namespace: "mdai"},
+		Data:       map[string]string{"PORT": "14268"},
+	}
+	cached := fake.NewClientBuilder().WithScheme(scheme).WithObjects(collector).Build()
+	apiReader := fake.NewClientBuilder().WithScheme(scheme).WithObjects(collector, userConfigMap).Build()
+	r := &TelemetryValidationReconciler{Client: cached, APIReader: apiReader, Scheme: scheme}
+
+	port, ports, err := r.resolveValidatorIngressPorts(t.Context(), tv)
+	require.NoError(t, err)
+	assert.Equal(t, int32(14268), port)
+	assert.Equal(t, []int32{14268}, ports)
+}
+
+func TestResolveValidatorIngressPortsFallsBackWhenEndpointIsUnresolvable(t *testing.T) {
+	t.Parallel()
+
+	scheme := runtime.NewScheme()
+	require.NoError(t, hubv1.AddToScheme(scheme))
+	require.NoError(t, otelv1beta1.AddToScheme(scheme))
+	require.NoError(t, corev1.AddToScheme(scheme))
+
+	tv := &hubv1.TelemetryValidation{
+		ObjectMeta: metav1.ObjectMeta{Name: "sample", Namespace: "mdai"},
+		Spec: hubv1.TelemetryValidationSpec{
+			CollectorRef: hubv1.TelemetryValidationCollectorRef{Name: "gateway"},
+		},
+	}
+	collector := &otelv1beta1.OpenTelemetryCollector{
+		ObjectMeta: metav1.ObjectMeta{Name: "gateway", Namespace: "mdai"},
+		Spec: otelv1beta1.OpenTelemetryCollectorSpec{
+			Config: otelv1beta1.Config{
+				Receivers: otelv1beta1.AnyConfig{Object: map[string]any{
+					"datadog": map[string]any{"endpoint": "0.0.0.0:${env:MISSING_PORT}"},
+				}},
+			},
+		},
+	}
+	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(collector).Build()
+	r := &TelemetryValidationReconciler{Client: c, Scheme: scheme}
+
+	port, ports, err := r.resolveValidatorIngressPorts(t.Context(), tv)
+	require.ErrorIs(t, err, collectorconfig.ErrUnresolvedEndpoint)
+	assert.Equal(t, defaultValidatorReceiverPort, port)
+	assert.Equal(t, []int32{defaultValidatorReceiverPort}, ports)
+}
+
 func TestReconcileCreatesShadowCollectorLabels(t *testing.T) {
 	t.Parallel()
 
@@ -401,6 +481,52 @@ func TestReconcileCreatesShadowCollectorLabels(t *testing.T) {
 	assert.Equal(t, "true", shadow.Annotations["hub.mydecisive.ai/shadow"])
 	assert.Equal(t, updated.Status.RunID, shadow.Annotations[telemetryValidationRunIDAnnotationKey])
 	assert.Equal(t, "kept", shadow.Annotations["existing-annotation"])
+}
+
+func TestReconcileRequeuesWhenSourceCollectorEndpointIsUnresolvable(t *testing.T) {
+	t.Parallel()
+
+	scheme := runtime.NewScheme()
+	require.NoError(t, hubv1.AddToScheme(scheme))
+	require.NoError(t, otelv1beta1.AddToScheme(scheme))
+	require.NoError(t, prometheusv1.AddToScheme(scheme))
+	require.NoError(t, corev1.AddToScheme(scheme))
+	require.NoError(t, appsv1.AddToScheme(scheme))
+
+	tv := &hubv1.TelemetryValidation{
+		ObjectMeta: metav1.ObjectMeta{Name: "sample", Namespace: "mdai"},
+		Spec: hubv1.TelemetryValidationSpec{
+			Enabled:      true,
+			CollectorRef: hubv1.TelemetryValidationCollectorRef{Name: "gateway"},
+		},
+	}
+	collector := &otelv1beta1.OpenTelemetryCollector{
+		ObjectMeta: metav1.ObjectMeta{Name: "gateway", Namespace: "mdai"},
+		Spec: otelv1beta1.OpenTelemetryCollectorSpec{
+			Config: otelv1beta1.Config{
+				Receivers: otelv1beta1.AnyConfig{Object: map[string]any{
+					"datadog": map[string]any{"endpoint": "0.0.0.0:${env:MISSING_PORT}"},
+				}},
+			},
+		},
+	}
+
+	c := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithStatusSubresource(tv).
+		WithObjects(tv, collector).
+		Build()
+	r := &TelemetryValidationReconciler{Client: c, Scheme: scheme}
+
+	result, err := r.Reconcile(t.Context(), ctrl.Request{
+		NamespacedName: types.NamespacedName{Name: tv.Name, Namespace: tv.Namespace},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, unresolvedEndpointRetryInterval, result.RequeueAfter)
+
+	// Resources are still reconciled using the fallback ingress port.
+	shadow := &otelv1beta1.OpenTelemetryCollector{}
+	assertObjectExists(t, c, shadow, types.NamespacedName{Name: shadowCollectorName("gateway"), Namespace: "mdai"})
 }
 
 func assertObjectExists(t *testing.T, c client.Client, obj client.Object, key types.NamespacedName) {

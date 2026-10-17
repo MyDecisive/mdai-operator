@@ -167,6 +167,122 @@ func TestResolveEndpointPortFromCollectorEnvironment(t *testing.T) {
 			wantOK:   true,
 		},
 		{
+			name:     "optional env configmap missing keeps envFrom value",
+			endpoint: "0.0.0.0:${env:PORT}",
+			env: []corev1.EnvVar{{
+				Name: "PORT",
+				ValueFrom: &corev1.EnvVarSource{
+					ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+						LocalObjectReference: corev1.LocalObjectReference{Name: "override"},
+						Key:                  "PORT",
+						Optional:             &optional,
+					},
+				},
+			}},
+			envFrom: []corev1.EnvFromSource{{
+				ConfigMapRef: &corev1.ConfigMapEnvSource{
+					LocalObjectReference: corev1.LocalObjectReference{Name: "ports"},
+				},
+			}},
+			objects:  []client.Object{configMap("ports", map[string]string{"PORT": "8126"})},
+			wantPort: 8126,
+			wantOK:   true,
+		},
+		{
+			name:     "optional env secret key missing keeps envFrom value",
+			endpoint: "0.0.0.0:${env:PORT}",
+			env: []corev1.EnvVar{{
+				Name: "PORT",
+				ValueFrom: &corev1.EnvVarSource{
+					SecretKeyRef: &corev1.SecretKeySelector{
+						LocalObjectReference: corev1.LocalObjectReference{Name: "override"},
+						Key:                  "PORT",
+						Optional:             &optional,
+					},
+				},
+			}},
+			envFrom: []corev1.EnvFromSource{{
+				ConfigMapRef: &corev1.ConfigMapEnvSource{
+					LocalObjectReference: corev1.LocalObjectReference{Name: "ports"},
+				},
+			}},
+			objects: []client.Object{
+				configMap("ports", map[string]string{"PORT": "8126"}),
+				secret("override", map[string][]byte{"OTHER": []byte("1")}),
+			},
+			wantPort: 8126,
+			wantOK:   true,
+		},
+		{
+			name:     "optional env missing without envFrom uses endpoint default",
+			endpoint: "0.0.0.0:${env:PORT:-14268}",
+			env: []corev1.EnvVar{{
+				Name: "PORT",
+				ValueFrom: &corev1.EnvVarSource{
+					ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+						LocalObjectReference: corev1.LocalObjectReference{Name: "override"},
+						Key:                  "PORT",
+						Optional:             &optional,
+					},
+				},
+			}},
+			wantPort: 14268,
+			wantOK:   true,
+		},
+		{
+			name:     "later env entry wins",
+			endpoint: "0.0.0.0:${env:PORT}",
+			env: []corev1.EnvVar{
+				{Name: "PORT", Value: "4317"},
+				{Name: "PORT", Value: "4318"},
+			},
+			wantPort: 4318,
+			wantOK:   true,
+		},
+		{
+			name:     "required env key missing is unresolved",
+			endpoint: "0.0.0.0:${env:PORT}",
+			env: []corev1.EnvVar{{
+				Name: "PORT",
+				ValueFrom: &corev1.EnvVarSource{
+					ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+						LocalObjectReference: corev1.LocalObjectReference{Name: "ports"},
+						Key:                  "grpc",
+					},
+				},
+			}},
+			envFrom: []corev1.EnvFromSource{{
+				ConfigMapRef: &corev1.ConfigMapEnvSource{
+					LocalObjectReference: corev1.LocalObjectReference{Name: "ports"},
+				},
+			}},
+			objects:   []client.Object{configMap("ports", map[string]string{"PORT": "8126"})},
+			wantError: `key "grpc" not found in ConfigMap "ports"`,
+		},
+		{
+			name:     "unsupported env source is unresolved",
+			endpoint: "0.0.0.0:${env:PORT}",
+			env: []corev1.EnvVar{{
+				Name: "PORT",
+				ValueFrom: &corev1.EnvVarSource{
+					FieldRef: &corev1.ObjectFieldSelector{FieldPath: "metadata.annotations['port']"},
+				},
+			}},
+			wantError: `environment variable "PORT" uses an unsupported valueFrom source`,
+		},
+		{
+			name:     "explicit empty env value overrides envFrom",
+			endpoint: "0.0.0.0:${env:PORT}",
+			env:      []corev1.EnvVar{{Name: "PORT"}},
+			envFrom: []corev1.EnvFromSource{{
+				ConfigMapRef: &corev1.ConfigMapEnvSource{
+					LocalObjectReference: corev1.LocalObjectReference{Name: "ports"},
+				},
+			}},
+			objects:   []client.Object{configMap("ports", map[string]string{"PORT": "8126"})},
+			wantError: `environment variable "PORT" is not a valid TCP port`,
+		},
+		{
 			name:     "optional missing source is unresolved",
 			endpoint: "0.0.0.0:${env:PORT}",
 			envFrom: []corev1.EnvFromSource{{
@@ -186,13 +302,13 @@ func TestResolveEndpointPortFromCollectorEnvironment(t *testing.T) {
 			name:      "invalid env port",
 			endpoint:  "0.0.0.0:${env:PORT}",
 			env:       []corev1.EnvVar{{Name: "PORT", Value: "nope"}},
-			wantError: `environment variable "PORT" value "nope" is not a valid TCP port`,
+			wantError: `environment variable "PORT" is not a valid TCP port`,
 		},
 		{
 			name:      "empty direct env value",
 			endpoint:  "0.0.0.0:${env:PORT}",
 			env:       []corev1.EnvVar{{Name: "PORT"}},
-			wantError: `environment variable "PORT" value "" is not a valid TCP port`,
+			wantError: `environment variable "PORT" is not a valid TCP port`,
 		},
 	}
 
@@ -235,12 +351,23 @@ func TestReceiverPorts(t *testing.T) {
 			}}},
 			env: []corev1.EnvVar{{Name: "ZIPKIN_PORT", Value: "9411"}},
 			want: []ReceiverPort{
-				{Port: 4317, EnableHTTP2: true},
-				{Port: 4318, EnableHTTP2: false},
-				{Port: 8126, EnableHTTP2: false},
-				{Port: 9411, EnableHTTP2: false},
+				{Port: 4317, EnableHTTP2: true, Receivers: []string{"otlp"}},
+				{Port: 4318, EnableHTTP2: false, Receivers: []string{"otlp"}},
+				{Port: 8126, EnableHTTP2: false, Receivers: []string{"datadog"}},
+				{Port: 9411, EnableHTTP2: false, Receivers: []string{"zipkin"}},
 			},
 			wantPort: []uint32{4317, 4318, 8126, 9411},
+		},
+		{
+			name: "merges receivers sharing a port",
+			config: otelv1beta1.Config{Receivers: otelv1beta1.AnyConfig{Object: map[string]any{
+				"otlp": map[string]any{"protocols": map[string]any{
+					"grpc": map[string]any{"endpoint": ":4317"},
+				}},
+				"otlp/2": map[string]any{"endpoint": ":4317"},
+			}}},
+			want:     []ReceiverPort{{Port: 4317, EnableHTTP2: true, Receivers: []string{"otlp", "otlp/2"}}},
+			wantPort: []uint32{4317},
 		},
 		{
 			name: "ignores unsupported non-env endpoint forms",
@@ -262,6 +389,72 @@ func TestReceiverPorts(t *testing.T) {
 			assert.Equal(t, tt.wantPort, ReceiverPortNumbers(ports))
 		})
 	}
+}
+
+func TestReceiverPortsKeepsResolvedPortsWhenEndpointIsUnresolvable(t *testing.T) {
+	t.Parallel()
+
+	config := otelv1beta1.Config{Receivers: otelv1beta1.AnyConfig{Object: map[string]any{
+		"datadog": map[string]any{"endpoint": "0.0.0.0:${env:MISSING_PORT}"},
+		"otlp": map[string]any{"protocols": map[string]any{
+			"grpc": map[string]any{"endpoint": ":4317"},
+		}},
+	}}}
+
+	ports, err := ReceiverPorts(t.Context(), nil, collector(nil, nil, config))
+	require.ErrorIs(t, err, ErrUnresolvedEndpoint)
+	require.ErrorContains(t, err, `receiver "datadog" endpoint`)
+	assert.Equal(t, []uint32{4317}, ReceiverPortNumbers(ports))
+}
+
+func TestReceiverPortsTreatsMissingRequiredSourceAsUnresolved(t *testing.T) {
+	t.Parallel()
+
+	config := otelv1beta1.Config{Receivers: otelv1beta1.AnyConfig{Object: map[string]any{
+		"datadog": map[string]any{"endpoint": "0.0.0.0:${env:PORT}"},
+	}}}
+	envFrom := []corev1.EnvFromSource{{
+		ConfigMapRef: &corev1.ConfigMapEnvSource{
+			LocalObjectReference: corev1.LocalObjectReference{Name: "missing"},
+		},
+	}}
+
+	ports, err := ReceiverPorts(t.Context(), fakeReader(), collector(nil, envFrom, config))
+	require.ErrorIs(t, err, ErrUnresolvedEndpoint)
+	require.ErrorContains(t, err, `ConfigMap "missing" not found`)
+	assert.Empty(t, ports)
+}
+
+func TestResolveEndpointPortDoesNotExposeSecretValues(t *testing.T) {
+	t.Parallel()
+
+	env := []corev1.EnvVar{{
+		Name: "PORT",
+		ValueFrom: &corev1.EnvVarSource{
+			SecretKeyRef: &corev1.SecretKeySelector{
+				LocalObjectReference: corev1.LocalObjectReference{Name: "creds"},
+				Key:                  "api-key",
+			},
+		},
+	}}
+	reader := fakeReader(secret("creds", map[string][]byte{"api-key": []byte("s3cr3t-api-key")}))
+
+	_, _, err := ResolveEndpointPort(t.Context(), reader, collector(env, nil, otelv1beta1.Config{}), "0.0.0.0:${env:PORT}")
+	require.ErrorIs(t, err, ErrUnresolvedEndpoint)
+	assert.NotContains(t, err.Error(), "s3cr3t-api-key")
+}
+
+func TestPreferredReceiverPortNumbers(t *testing.T) {
+	t.Parallel()
+
+	ports := []ReceiverPort{
+		{Port: 4317, Receivers: []string{"otlp"}},
+		{Port: 8126, Receivers: []string{"datadog/apm"}},
+		{Port: 9411, Receivers: []string{"zipkin"}},
+	}
+	assert.Equal(t, []uint32{8126}, PreferredReceiverPortNumbers(ports))
+	assert.Equal(t, []uint32{4317, 9411}, PreferredReceiverPortNumbers([]ReceiverPort{ports[0], ports[2]}))
+	assert.Empty(t, PreferredReceiverPortNumbers(nil))
 }
 
 func fakeReader(objects ...client.Object) client.Reader {

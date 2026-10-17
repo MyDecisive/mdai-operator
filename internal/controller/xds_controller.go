@@ -8,6 +8,7 @@ import (
 	"os"
 	"slices"
 	"strings"
+	"time"
 
 	hubv1 "github.com/mydecisive/mdai-operator/api/v1"
 	"github.com/mydecisive/mdai-operator/internal/collectorconfig"
@@ -40,6 +41,10 @@ const (
 	connectionCollectorRole     = "connection-collector"
 	xdsManagedServicePortPrefix = "xds-"
 	splitNKeyValue              = 2
+
+	// unresolvedEndpointRetryInterval is how often reconciles are retried while a collector references an env
+	// source (ConfigMap/Secret/variable) that cannot be resolved yet.
+	unresolvedEndpointRetryInterval = time.Minute
 )
 
 var (
@@ -53,9 +58,8 @@ type XDSManager interface {
 	UpdateSnapshot(
 		ctx context.Context,
 		nodeID string,
-		collectors []otelv1beta1.OpenTelemetryCollector,
+		collectors []xds.CollectorPorts,
 		validations []hubv1.TelemetryValidation,
-		reader client.Reader,
 	) error
 }
 
@@ -95,15 +99,27 @@ func (r *XDSReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 		return ctrl.Result{}, err
 	}
 
+	collectorPorts, unresolvedErr := resolveCollectorPorts(ctx, r.reader(), eligibleCollectors)
+	if unresolvedErr != nil && !errors.Is(unresolvedErr, collectorconfig.ErrUnresolvedEndpoint) {
+		log.Error(unresolvedErr, "unable to resolve collector receiver ports for xDS update")
+		return ctrl.Result{}, unresolvedErr
+	}
+
 	// For now, we use a fixed nodeID as configured in the hub chart
-	if err := r.XDSManager.UpdateSnapshot(ctx, "envoy-hub-proxy", eligibleCollectors, validations.Items, r.reader()); err != nil {
+	if err := r.XDSManager.UpdateSnapshot(ctx, "envoy-hub-proxy", collectorPorts, validations.Items); err != nil {
 		log.Error(err, "failed to update xDS snapshot")
 		return ctrl.Result{}, err
 	}
 
-	if err := r.reconcileProxyServicePorts(ctx, eligibleCollectors); err != nil {
+	if err := r.reconcileProxyServicePorts(ctx, collectorPorts); err != nil {
 		log.Error(err, "failed to reconcile xDS proxy service ports")
 		return ctrl.Result{}, err
+	}
+
+	if unresolvedErr != nil {
+		log.Info("-- Finished xDS reconciliation (OpenTelemetryCollector) with unresolved receiver endpoints; retrying --",
+			"retryAfter", unresolvedEndpointRetryInterval)
+		return ctrl.Result{RequeueAfter: unresolvedEndpointRetryInterval}, nil //nolint:nilerr // already logged; a non-nil error would override RequeueAfter with backoff
 	}
 
 	log.Info("-- Finished xDS reconciliation (OpenTelemetryCollector) --")
@@ -138,12 +154,8 @@ func (r *XDSReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Complete(r)
 }
 
-func (r *XDSReconciler) reconcileProxyServicePorts(ctx context.Context, collectors []otelv1beta1.OpenTelemetryCollector) error {
-	collectorPorts, err := discoveredCollectorPorts(ctx, r.reader(), collectors)
-	if err != nil {
-		return err
-	}
-	desiredManagedPorts := managedServicePorts(collectorPorts)
+func (r *XDSReconciler) reconcileProxyServicePorts(ctx context.Context, collectors []xds.CollectorPorts) error {
+	desiredManagedPorts := managedServicePorts(discoveredCollectorPorts(collectors))
 
 	service, err := r.resolveProxyService(ctx, desiredManagedPorts)
 	if err != nil {
@@ -381,22 +393,41 @@ func parseLabelSelector(raw string) map[string]string {
 	return result
 }
 
-func discoveredCollectorPorts(
+// resolveCollectorPorts resolves each collector's receiver ports once per reconcile. A collector whose spec has
+// unresolvable endpoints is logged and keeps the ports that did resolve (or the OTLP defaults), so one
+// misconfigured collector cannot block routing for the others; the full result is then returned together with an
+// error wrapping collectorconfig.ErrUnresolvedEndpoint so the caller can retry. Any other error (e.g. failing to
+// read a referenced ConfigMap or Secret) returns no ports so the last good snapshot is left in place.
+func resolveCollectorPorts(
 	ctx context.Context,
 	reader client.Reader,
 	collectors []otelv1beta1.OpenTelemetryCollector,
-) ([]uint32, error) {
-	seen := make(map[uint32]struct{})
-
+) ([]xds.CollectorPorts, error) {
+	log := logger.FromContext(ctx)
+	result := make([]xds.CollectorPorts, 0, len(collectors))
+	var unresolved []error
 	for _, collector := range collectors {
 		ports, err := collectorconfig.ReceiverPorts(ctx, reader, collector)
+		if err != nil && !errors.Is(err, collectorconfig.ErrUnresolvedEndpoint) {
+			return nil, fmt.Errorf("collector %s/%s: %w", collector.Namespace, collector.Name, err)
+		}
 		if err != nil {
-			return nil, err
+			log.Error(err, "skipping unresolvable receiver endpoints for xDS",
+				"collector", collector.Name, "namespace", collector.Namespace)
+			unresolved = append(unresolved, fmt.Errorf("collector %s/%s: %w", collector.Namespace, collector.Name, err))
 		}
 		if len(ports) == 0 {
 			ports = collectorconfig.DefaultReceiverPorts()
 		}
-		for _, p := range ports {
+		result = append(result, xds.CollectorPorts{Collector: collector, Ports: ports})
+	}
+	return result, errors.Join(unresolved...)
+}
+
+func discoveredCollectorPorts(collectors []xds.CollectorPorts) []uint32 {
+	seen := make(map[uint32]struct{})
+	for _, collector := range collectors {
+		for _, p := range collector.Ports {
 			seen[p.Port] = struct{}{}
 		}
 	}
@@ -406,7 +437,7 @@ func discoveredCollectorPorts(
 		result = append(result, p)
 	}
 	slices.Sort(result)
-	return result, nil
+	return result
 }
 
 func managedServicePorts(ports []uint32) []corev1.ServicePort {

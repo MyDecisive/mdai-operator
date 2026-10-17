@@ -3,6 +3,7 @@ package controller
 import (
 	"context"
 	_ "embed"
+	"errors"
 	"fmt"
 	"maps"
 	"strings"
@@ -37,6 +38,9 @@ const (
 	defaultValidatorReplicas     int32 = 1
 )
 
+// reconcileValidator returns an error wrapping collectorconfig.ErrUnresolvedEndpoint alongside fully reconciled
+// results when some source collector endpoints could not be resolved and fallback ingress ports were used.
+//
 //nolint:revive // function-result-limit: returning these values avoids an extra struct in hot reconcile flow.
 func (r *TelemetryValidationReconciler) reconcileValidator(
 	ctx context.Context,
@@ -54,9 +58,9 @@ func (r *TelemetryValidationReconciler) reconcileValidator(
 	validatorServiceName := validatorName
 	validatorConfigName := validatorConfigMapNameForTV(validation.Name)
 	validatorPort := validatorPort(validation.Spec.Validator.Port)
-	validatorIngressPort, validatorIngressPorts, err := r.resolveValidatorIngressPorts(ctx, validation)
-	if err != nil {
-		return "", "", "", 0, err
+	validatorIngressPort, validatorIngressPorts, unresolvedErr := r.resolveValidatorIngressPorts(ctx, validation)
+	if unresolvedErr != nil && !errors.Is(unresolvedErr, collectorconfig.ErrUnresolvedEndpoint) {
+		return "", "", "", 0, unresolvedErr
 	}
 	validatorRulesYAML, validatorFieldMappingYAML := resolveValidatorConfigYAMLs(validation)
 	validatorReplicas := validatorReplicas(validation.Spec.Validator.Replicas)
@@ -68,7 +72,7 @@ func (r *TelemetryValidationReconciler) reconcileValidator(
 			Namespace: validation.Namespace,
 		},
 	}
-	err = retry.RetryOnConflict(retry.DefaultRetry, func() error {
+	err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
 		_, createOrUpdateErr := controllerutil.CreateOrUpdate(ctx, r.Client, cfgMap, func() error {
 			if err := controllerutil.SetControllerReference(validation, cfgMap, r.Scheme); err != nil {
 				return err
@@ -333,7 +337,7 @@ func (r *TelemetryValidationReconciler) reconcileValidator(
 		validation.Namespace,
 		validatorPort,
 	)
-	return validatorName, validatorServiceName, validatorEndpoint, validatorIngressPort, nil
+	return validatorName, validatorServiceName, validatorEndpoint, validatorIngressPort, unresolvedErr
 }
 
 func (r *TelemetryValidationReconciler) deleteManagedValidatorResources(
@@ -405,6 +409,9 @@ func resolveValidatorConfigYAMLs(validation *hubv1.TelemetryValidation) (string,
 	return rulesYAML, fieldMappingYAML
 }
 
+// resolveValidatorIngressPorts returns the validator ingress ports derived from the source collector's receivers.
+// When some endpoints cannot be resolved, the remaining ports (or the default) are returned together with an
+// error wrapping collectorconfig.ErrUnresolvedEndpoint.
 func (r *TelemetryValidationReconciler) resolveValidatorIngressPorts(
 	ctx context.Context,
 	validation *hubv1.TelemetryValidation,
@@ -422,18 +429,15 @@ func (r *TelemetryValidationReconciler) resolveValidatorIngressPorts(
 		return 0, nil, err
 	}
 
-	allReceiverPorts, err := collectorconfig.ReceiverPorts(ctx, r.Client, source)
-	if err != nil {
-		return 0, nil, err
+	receiverPorts, unresolvedErr := collectorconfig.ReceiverPorts(ctx, r.reader(), source)
+	if unresolvedErr != nil && !errors.Is(unresolvedErr, collectorconfig.ErrUnresolvedEndpoint) {
+		return 0, nil, unresolvedErr
 	}
-	allPorts := collectorconfig.ReceiverPortNumbers(allReceiverPorts)
+	allPorts := collectorconfig.ReceiverPortNumbers(receiverPorts)
 	if len(allPorts) == 0 {
 		allPorts = []uint32{uint32(defaultValidatorReceiverPort)}
 	}
-	preferredPorts, err := collectorconfig.PreferredReceiverPortNumbers(ctx, r.Client, source)
-	if err != nil {
-		return 0, nil, err
-	}
+	preferredPorts := collectorconfig.PreferredReceiverPortNumbers(receiverPorts)
 	if len(preferredPorts) == 0 {
 		preferredPorts = allPorts
 	}
@@ -452,7 +456,7 @@ func (r *TelemetryValidationReconciler) resolveValidatorIngressPorts(
 		return 0, nil, err
 	}
 
-	return preferredPort, resolvedPorts, nil
+	return preferredPort, resolvedPorts, unresolvedErr
 }
 
 func uint32ToInt32(value uint32) (int32, error) {

@@ -29,7 +29,6 @@ import (
 	"google.golang.org/protobuf/types/known/anypb"
 	"google.golang.org/protobuf/types/known/durationpb"
 	"google.golang.org/protobuf/types/known/wrapperspb"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 const httpProtocolOptionsTypedExtension = "envoy.extensions.upstreams.http.v3.HttpProtocolOptions"
@@ -65,12 +64,17 @@ type routeTarget struct {
 	port        uint32
 }
 
+// CollectorPorts pairs a collector with the receiver ports resolved from its spec.
+type CollectorPorts struct {
+	Collector otelv1beta1.OpenTelemetryCollector
+	Ports     []collectorconfig.ReceiverPort
+}
+
 func (m *Manager) UpdateSnapshot(
 	ctx context.Context,
 	nodeID string,
-	collectors []otelv1beta1.OpenTelemetryCollector,
+	collectors []CollectorPorts,
 	validations []hubv1.TelemetryValidation,
-	reader client.Reader,
 ) error {
 	log := logr.FromContextOrDiscard(ctx)
 	m.mu.Lock()
@@ -100,7 +104,8 @@ func (m *Manager) UpdateSnapshot(
 	// Group all ports found across all collectors
 	portMap := make(map[uint32][]collectorPort)
 
-	for _, c := range collectors {
+	for _, cp := range collectors {
+		c := cp.Collector
 		if IsShadowCollector(c) {
 			continue
 		}
@@ -108,17 +113,9 @@ func (m *Manager) UpdateSnapshot(
 		// The OTEL Operator creates a service named <collector-name>-collector
 		svcName := fmt.Sprintf("%s-collector.%s.svc.cluster.local", c.Name, c.Namespace)
 
-		ports, err := collectorconfig.ReceiverPorts(ctx, reader, c)
-		if err != nil {
-			return err
-		}
-		if len(ports) == 0 {
-			ports = collectorconfig.DefaultReceiverPorts()
-		}
+		log.Info("Identified ports for collector", "collector", c.Name, "ports", cp.Ports)
 
-		log.Info("Identified ports for collector", "collector", c.Name, "ports", ports)
-
-		for _, p := range ports {
+		for _, p := range cp.Ports {
 			portMap[p.Port] = append(portMap[p.Port], collectorPort{
 				port:           p.Port,
 				svc:            svcName,

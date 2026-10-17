@@ -2,9 +2,12 @@ package controller
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	hubv1 "github.com/mydecisive/mdai-operator/api/v1"
+	"github.com/mydecisive/mdai-operator/internal/collectorconfig"
+	"github.com/mydecisive/mdai-operator/internal/xds"
 	otelv1beta1 "github.com/open-telemetry/opentelemetry-operator/apis/v1beta1"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -19,22 +22,22 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 )
 
 type fakeXDSManager struct {
 	called     bool
-	collectors []otelv1beta1.OpenTelemetryCollector
+	collectors []xds.CollectorPorts
 }
 
 func (f *fakeXDSManager) UpdateSnapshot(
 	_ context.Context,
 	_ string,
-	collectors []otelv1beta1.OpenTelemetryCollector,
+	collectors []xds.CollectorPorts,
 	_ []hubv1.TelemetryValidation,
-	_ client.Reader,
 ) error {
 	f.called = true
-	f.collectors = append([]otelv1beta1.OpenTelemetryCollector(nil), collectors...)
+	f.collectors = append([]xds.CollectorPorts(nil), collectors...)
 	return nil
 }
 
@@ -386,7 +389,7 @@ func TestXDSReconcileCreatesProxyServiceFromEnvWhenMissing(t *testing.T) {
 	}, created.Spec.Ports)
 }
 
-func TestDiscoveredCollectorPortsFallsBackToDefaultPorts(t *testing.T) {
+func TestResolveCollectorPortsFallsBackToDefaultPorts(t *testing.T) {
 	collector := otelv1beta1.OpenTelemetryCollector{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "gateway",
@@ -406,12 +409,12 @@ func TestDiscoveredCollectorPortsFallsBackToDefaultPorts(t *testing.T) {
 		},
 	}
 
-	ports, err := discoveredCollectorPorts(t.Context(), nil, []otelv1beta1.OpenTelemetryCollector{collector})
+	resolved, err := resolveCollectorPorts(t.Context(), nil, []otelv1beta1.OpenTelemetryCollector{collector})
 	require.NoError(t, err)
-	assert.Equal(t, []uint32{4317, 4318}, ports)
+	assert.Equal(t, []uint32{4317, 4318}, discoveredCollectorPorts(resolved))
 }
 
-func TestDiscoveredCollectorPortsResolvesEnvironmentEndpointPorts(t *testing.T) {
+func TestResolveCollectorPortsResolvesEnvironmentEndpointPorts(t *testing.T) {
 	tests := []struct {
 		name    string
 		env     []corev1.EnvVar
@@ -472,10 +475,133 @@ func TestDiscoveredCollectorPortsResolvesEnvironmentEndpointPorts(t *testing.T) 
 				},
 			}
 
-			ports, err := discoveredCollectorPorts(t.Context(), cl, []otelv1beta1.OpenTelemetryCollector{collector})
+			resolved, err := resolveCollectorPorts(t.Context(), cl, []otelv1beta1.OpenTelemetryCollector{collector})
 			require.NoError(t, err)
-			assert.Equal(t, tt.want, ports)
+			assert.Equal(t, tt.want, discoveredCollectorPorts(resolved))
 		})
+	}
+}
+
+func TestResolveCollectorPortsIsolatesUnresolvableCollector(t *testing.T) {
+	good := xdsCollectorWithReceivers("good", nil, map[string]any{
+		"otlp": map[string]any{"protocols": map[string]any{
+			"grpc": map[string]any{"endpoint": ":4317"},
+		}},
+	})
+	partial := xdsCollectorWithReceivers("partial", nil, map[string]any{
+		"datadog": map[string]any{"endpoint": "0.0.0.0:${env:MISSING_PORT}"},
+		"zipkin":  map[string]any{"endpoint": ":9411"},
+	})
+	broken := xdsCollectorWithReceivers("broken", nil, map[string]any{
+		"datadog": map[string]any{"endpoint": "0.0.0.0:${env:MISSING_PORT}"},
+	})
+
+	resolved, err := resolveCollectorPorts(t.Context(), nil, []otelv1beta1.OpenTelemetryCollector{good, partial, broken})
+	require.ErrorIs(t, err, collectorconfig.ErrUnresolvedEndpoint)
+	require.ErrorContains(t, err, "collector mdai/partial")
+	require.ErrorContains(t, err, "collector mdai/broken")
+	require.NotContains(t, err.Error(), "collector mdai/good")
+	require.Len(t, resolved, 3)
+
+	assert.Equal(t, "good", resolved[0].Collector.Name)
+	assert.Equal(t, []uint32{4317}, collectorconfig.ReceiverPortNumbers(resolved[0].Ports))
+	assert.Equal(t, "partial", resolved[1].Collector.Name)
+	assert.Equal(t, []uint32{9411}, collectorconfig.ReceiverPortNumbers(resolved[1].Ports),
+		"resolvable endpoints are kept when another endpoint cannot be resolved")
+	assert.Equal(t, "broken", resolved[2].Collector.Name)
+	assert.Equal(t, collectorconfig.DefaultReceiverPorts(), resolved[2].Ports,
+		"a collector with no resolvable endpoints falls back to the OTLP defaults")
+}
+
+func TestResolveCollectorPortsReturnsTransientReadErrors(t *testing.T) {
+	scheme := runtime.NewScheme()
+	require.NoError(t, corev1.AddToScheme(scheme))
+	readErr := errors.New("apiserver unavailable")
+	cl := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithInterceptorFuncs(interceptor.Funcs{
+			Get: func(context.Context, client.WithWatch, client.ObjectKey, client.Object, ...client.GetOption) error {
+				return readErr
+			},
+		}).
+		Build()
+	collector := xdsCollectorWithReceivers("gateway", []corev1.EnvFromSource{{
+		ConfigMapRef: &corev1.ConfigMapEnvSource{
+			LocalObjectReference: corev1.LocalObjectReference{Name: "collector-ports"},
+		},
+	}}, map[string]any{
+		"datadog": map[string]any{"endpoint": "0.0.0.0:${env:PORT}"},
+	})
+
+	_, err := resolveCollectorPorts(t.Context(), cl, []otelv1beta1.OpenTelemetryCollector{collector})
+	require.ErrorIs(t, err, readErr)
+	assert.NotErrorIs(t, err, collectorconfig.ErrUnresolvedEndpoint)
+}
+
+func TestXDSReconcileUpdatesSnapshotWhenOneCollectorIsUnresolvable(t *testing.T) {
+	t.Setenv(xdsProxyServiceNameEnv, "envoy-hub-proxy")
+	t.Setenv(xdsProxyServiceNamespaceEnv, "mdai")
+	t.Setenv(xdsProxyServiceSelectorEnv, "app=envoy,component=proxy")
+
+	scheme := runtime.NewScheme()
+	require.NoError(t, corev1.AddToScheme(scheme))
+	require.NoError(t, appsv1.AddToScheme(scheme))
+	require.NoError(t, discoveryv1.AddToScheme(scheme))
+	require.NoError(t, hubv1.AddToScheme(scheme))
+	require.NoError(t, otelv1beta1.AddToScheme(scheme))
+
+	good := xdsCollectorWithReceivers("good", nil, map[string]any{
+		"otlp": map[string]any{"protocols": map[string]any{
+			"grpc": map[string]any{"endpoint": ":4317"},
+		}},
+	})
+	broken := xdsCollectorWithReceivers("broken", nil, map[string]any{
+		"datadog": map[string]any{"endpoint": "0.0.0.0:${env:MISSING_PORT}"},
+	})
+	cl := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(&good, &broken).
+		Build()
+
+	manager := &fakeXDSManager{}
+	reconciler := &XDSReconciler{
+		Client:     cl,
+		Scheme:     scheme,
+		XDSManager: manager,
+	}
+
+	result, err := reconciler.Reconcile(t.Context(), ctrl.Request{
+		NamespacedName: types.NamespacedName{Name: "broken", Namespace: "mdai"},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, unresolvedEndpointRetryInterval, result.RequeueAfter,
+		"reconcile should be retried until the missing env source exists")
+	require.True(t, manager.called, "xDS manager should be called")
+
+	names := make([]string, 0, len(manager.collectors))
+	for _, c := range manager.collectors {
+		names = append(names, c.Collector.Name)
+	}
+	assert.ElementsMatch(t, []string{"good", "broken"}, names)
+}
+
+func xdsCollectorWithReceivers(name string, envFrom []corev1.EnvFromSource, receivers map[string]any) otelv1beta1.OpenTelemetryCollector {
+	return otelv1beta1.OpenTelemetryCollector{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      name,
+			Namespace: "mdai",
+			Labels: map[string]string{
+				xdsRoleLabelKey: connectionCollectorRole,
+			},
+		},
+		Spec: otelv1beta1.OpenTelemetryCollectorSpec{
+			OpenTelemetryCommonFields: otelv1beta1.OpenTelemetryCommonFields{
+				EnvFrom: envFrom,
+			},
+			Config: otelv1beta1.Config{
+				Receivers: otelv1beta1.AnyConfig{Object: receivers},
+			},
+		},
 	}
 }
 

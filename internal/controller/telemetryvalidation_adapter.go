@@ -2,6 +2,7 @@ package controller
 
 import (
 	"context"
+	"errors"
 
 	"github.com/go-logr/logr"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -9,6 +10,7 @@ import (
 	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 
 	hubv1 "github.com/mydecisive/mdai-operator/api/v1"
+	"github.com/mydecisive/mdai-operator/internal/collectorconfig"
 )
 
 var _ Adapter = (*TelemetryValidationAdapter)(nil)
@@ -91,13 +93,13 @@ func (c *TelemetryValidationAdapter) ensureSynchronized(ctx context.Context) (Op
 		return ContinueProcessing()
 	}
 
-	validatorName, validatorServiceName, resolvedValidatorEndpoint, validatorIngressPort, err := c.reconciler.reconcileValidator(
+	validatorName, validatorServiceName, resolvedValidatorEndpoint, validatorIngressPort, unresolvedErr := c.reconciler.reconcileValidator(
 		ctx,
 		c.validation,
 		c.resolvedRunID,
 	)
-	if err != nil {
-		return ContinueWithError(err)
+	if unresolvedErr != nil && !errors.Is(unresolvedErr, collectorconfig.ErrUnresolvedEndpoint) {
+		return ContinueWithError(unresolvedErr)
 	}
 
 	c.validatorName = validatorName
@@ -105,7 +107,7 @@ func (c *TelemetryValidationAdapter) ensureSynchronized(ctx context.Context) (Op
 	c.resolvedValidatorEndpoint = resolvedValidatorEndpoint
 	c.validatorIngressPortStatus = validatorIngressPort
 
-	return c.reconciler.reconcileShadowCollector(
+	result, err := c.reconciler.reconcileShadowCollector(
 		ctx,
 		c.validation,
 		c.validatorName,
@@ -114,6 +116,13 @@ func (c *TelemetryValidationAdapter) ensureSynchronized(ctx context.Context) (Op
 		c.validatorIngressPortStatus,
 		c.resolvedRunID,
 	)
+	if err != nil || result.RequeueOrCancel() || unresolvedErr == nil {
+		return result, err
+	}
+
+	c.logger.Error(unresolvedErr, "using fallback validator ingress ports for unresolvable source collector endpoints; retrying",
+		"retryAfter", unresolvedEndpointRetryInterval)
+	return RequeueAfter(unresolvedEndpointRetryInterval, nil)
 }
 
 func (*TelemetryValidationAdapter) finalize(context.Context) (ObjectState, error) {

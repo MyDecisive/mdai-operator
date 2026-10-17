@@ -12,15 +12,12 @@ import (
 	cachev3 "github.com/envoyproxy/go-control-plane/pkg/cache/v3"
 	"github.com/envoyproxy/go-control-plane/pkg/resource/v3"
 	hubv1 "github.com/mydecisive/mdai-operator/api/v1"
+	"github.com/mydecisive/mdai-operator/internal/collectorconfig"
 	otelv1beta1 "github.com/open-telemetry/opentelemetry-operator/apis/v1beta1"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/proto"
-	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime"
-	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 )
 
 func TestUpdateSnapshotAddsWildcardFallbackForSharedPort(t *testing.T) {
@@ -32,7 +29,7 @@ func TestUpdateSnapshotAddsWildcardFallbackForSharedPort(t *testing.T) {
 		newCollector("beta", "mdai", 4317),
 	}
 
-	err := manager.UpdateSnapshot(t.Context(), "envoy-hub-proxy", collectors, nil, nil)
+	err := manager.UpdateSnapshot(t.Context(), "envoy-hub-proxy", withPorts(t, collectors), nil)
 	require.NoError(t, err)
 
 	snapshot, err := manager.cache.GetSnapshot("envoy-hub-proxy")
@@ -112,7 +109,7 @@ func TestUpdateSnapshotUsesValidatorServiceFromTelemetryValidationStatus(t *test
 		},
 	}
 
-	err := manager.UpdateSnapshot(t.Context(), "envoy-hub-proxy", collectors, validations, nil)
+	err := manager.UpdateSnapshot(t.Context(), "envoy-hub-proxy", withPorts(t, collectors), validations)
 	require.NoError(t, err)
 
 	snapshot, err := manager.cache.GetSnapshot("envoy-hub-proxy")
@@ -157,7 +154,7 @@ func TestUpdateSnapshotSkipsValidatorMirrorUntilValidatorServiceReady(t *testing
 		},
 	}
 
-	err := manager.UpdateSnapshot(t.Context(), "envoy-hub-proxy", collectors, validations, nil)
+	err := manager.UpdateSnapshot(t.Context(), "envoy-hub-proxy", withPorts(t, collectors), validations)
 	require.NoError(t, err)
 
 	snapshot, err := manager.cache.GetSnapshot("envoy-hub-proxy")
@@ -196,7 +193,7 @@ func TestUpdateSnapshotUsesCollectorListenerPortForValidatorMirror(t *testing.T)
 		},
 	}
 
-	err := manager.UpdateSnapshot(t.Context(), "envoy-hub-proxy", collectors, validations, nil)
+	err := manager.UpdateSnapshot(t.Context(), "envoy-hub-proxy", withPorts(t, collectors), validations)
 	require.NoError(t, err)
 
 	snapshot, err := manager.cache.GetSnapshot("envoy-hub-proxy")
@@ -259,7 +256,7 @@ func TestUpdateSnapshotUsesUniqueMirrorClusterNamesPerValidation(t *testing.T) {
 		},
 	}
 
-	err := manager.UpdateSnapshot(t.Context(), "envoy-hub-proxy", collectors, validations, nil)
+	err := manager.UpdateSnapshot(t.Context(), "envoy-hub-proxy", withPorts(t, collectors), validations)
 	require.NoError(t, err)
 
 	snapshot, err := manager.cache.GetSnapshot("envoy-hub-proxy")
@@ -291,7 +288,7 @@ func TestUpdateSnapshotSetsHTTP2UpstreamProtocolOptionsOnClusters(t *testing.T) 
 		newCollector("gateway", "mdai", 4317),
 	}
 
-	err := manager.UpdateSnapshot(t.Context(), "envoy-hub-proxy", collectors, nil, nil)
+	err := manager.UpdateSnapshot(t.Context(), "envoy-hub-proxy", withPorts(t, collectors), nil)
 	require.NoError(t, err)
 
 	snapshot, err := manager.cache.GetSnapshot("envoy-hub-proxy")
@@ -323,7 +320,7 @@ func TestUpdateSnapshotDoesNotForceHTTP2ForNonGRPCPorts(t *testing.T) {
 		newCollectorWithProtocol("gateway", "mdai", "http", 4318),
 	}
 
-	err := manager.UpdateSnapshot(t.Context(), "envoy-hub-proxy", collectors, nil, nil)
+	err := manager.UpdateSnapshot(t.Context(), "envoy-hub-proxy", withPorts(t, collectors), nil)
 	require.NoError(t, err)
 
 	snapshot, err := manager.cache.GetSnapshot("envoy-hub-proxy")
@@ -340,68 +337,6 @@ func TestUpdateSnapshotDoesNotForceHTTP2ForNonGRPCPorts(t *testing.T) {
 	typedProtocolOptions := c.GetTypedExtensionProtocolOptions()
 	_, exists := typedProtocolOptions[httpProtocolOptionsTypedExtension]
 	assert.False(t, exists, "non-gRPC cluster should not force HTTP/2 upstream protocol options")
-}
-
-func TestUpdateSnapshotResolvesEnvironmentEndpointPorts(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name     string
-		env      []corev1.EnvVar
-		envFrom  []corev1.EnvFromSource
-		objects  []client.Object
-		wantName string
-	}{
-		{
-			name:     "spec env",
-			env:      []corev1.EnvVar{{Name: "PORT", Value: "8126"}},
-			wantName: "listener_8126",
-		},
-		{
-			name: "spec envFrom configmap",
-			envFrom: []corev1.EnvFromSource{{
-				ConfigMapRef: &corev1.ConfigMapEnvSource{
-					LocalObjectReference: corev1.LocalObjectReference{Name: "collector-ports"},
-				},
-			}},
-			objects: []client.Object{&corev1.ConfigMap{
-				ObjectMeta: metav1.ObjectMeta{Name: "collector-ports", Namespace: "mdai"},
-				Data:       map[string]string{"PORT": "14268"},
-			}},
-			wantName: "listener_14268",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			manager := NewXDSManager()
-			collector := newCollectorWithProtocol("gateway", "mdai", "grpc", 4317)
-			collector.Spec.OpenTelemetryCommonFields.Env = tt.env         //nolint:staticcheck // keep embedded field explicit in this test setup
-			collector.Spec.OpenTelemetryCommonFields.EnvFrom = tt.envFrom //nolint:staticcheck // keep embedded field explicit in this test setup
-			collector.Spec.Config.Receivers.Object["otlp"] = map[string]any{
-				"protocols": map[string]any{
-					"grpc": map[string]any{"endpoint": "0.0.0.0:${env:PORT}"},
-				},
-			}
-
-			err := manager.UpdateSnapshot(
-				t.Context(),
-				"envoy-hub-proxy",
-				[]otelv1beta1.OpenTelemetryCollector{collector},
-				nil,
-				fakeReader(tt.objects...),
-			)
-			require.NoError(t, err)
-
-			snapshot, err := manager.cache.GetSnapshot("envoy-hub-proxy")
-			require.NoError(t, err)
-			concreteSnapshot, ok := snapshot.(*cachev3.Snapshot)
-			require.True(t, ok)
-			assert.Contains(t, concreteSnapshot.GetResources(resource.ListenerType), tt.wantName)
-		})
-	}
 }
 
 func TestPrefixClusterName(t *testing.T) {
@@ -429,7 +364,7 @@ func TestUpdateSnapshotPrefixesClusterNamesWithMdaiConnection(t *testing.T) {
 		newCollectorWithApp("gateway", "mdai", "my-hub"),
 	}
 
-	err := manager.UpdateSnapshot(t.Context(), "envoy-hub-proxy", collectors, nil, nil)
+	err := manager.UpdateSnapshot(t.Context(), "envoy-hub-proxy", withPorts(t, collectors), nil)
 	require.NoError(t, err)
 
 	snapshot, err := manager.cache.GetSnapshot("envoy-hub-proxy")
@@ -469,7 +404,7 @@ func TestUpdateSnapshotPrefixesValidatorAndShadowClusterNamesWithMdaiConnection(
 		},
 	}
 
-	err := manager.UpdateSnapshot(t.Context(), "envoy-hub-proxy", collectors, validations, nil)
+	err := manager.UpdateSnapshot(t.Context(), "envoy-hub-proxy", withPorts(t, collectors), validations)
 	require.NoError(t, err)
 
 	snapshot, err := manager.cache.GetSnapshot("envoy-hub-proxy")
@@ -495,7 +430,7 @@ func TestUpdateSnapshotPrefixesWildcardDefaultClusterWithMdaiConnection(t *testi
 		newCollectorWithApp("beta", "mdai", "my-hub"),
 	}
 
-	err := manager.UpdateSnapshot(t.Context(), "envoy-hub-proxy", collectors, nil, nil)
+	err := manager.UpdateSnapshot(t.Context(), "envoy-hub-proxy", withPorts(t, collectors), nil)
 	require.NoError(t, err)
 
 	snapshot, err := manager.cache.GetSnapshot("envoy-hub-proxy")
@@ -563,11 +498,14 @@ func newCollectorWithProtocol(name, namespace, protocol string, port uint32) ote
 	}
 }
 
-func fakeReader(objects ...client.Object) client.Reader {
-	scheme := runtime.NewScheme()
-	_ = corev1.AddToScheme(scheme)
-	return fake.NewClientBuilder().
-		WithScheme(scheme).
-		WithObjects(objects...).
-		Build()
+// withPorts resolves receiver ports the way the xDS controller does for collectors with static endpoints.
+func withPorts(t *testing.T, collectors []otelv1beta1.OpenTelemetryCollector) []CollectorPorts {
+	t.Helper()
+	result := make([]CollectorPorts, 0, len(collectors))
+	for _, c := range collectors {
+		ports, err := collectorconfig.ReceiverPorts(t.Context(), nil, c)
+		require.NoError(t, err)
+		result = append(result, CollectorPorts{Collector: c, Ports: ports})
+	}
+	return result
 }
