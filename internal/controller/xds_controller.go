@@ -1,13 +1,16 @@
 package controller
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"math"
 	"os"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	hubv1 "github.com/mydecisive/mdai-operator/api/v1"
@@ -71,6 +74,11 @@ type XDSReconciler struct {
 	Scheme     *runtime.Scheme
 	XDSManager XDSManager
 	Namespace  string // operator namespace; scopes marked-service/deployment discovery
+
+	// lastResolvedPorts holds each collector's most recent fully resolved receiver ports, keyed by UID. They are
+	// reused when a referenced env source later goes missing, since running pods keep their original environment.
+	lastResolvedPortsMu sync.Mutex
+	lastResolvedPorts   map[types.UID][]collectorconfig.ReceiverPort
 }
 
 // +kubebuilder:rbac:groups=opentelemetry.io,resources=opentelemetrycollectors,verbs=get;list;watch
@@ -99,7 +107,12 @@ func (r *XDSReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 		return ctrl.Result{}, err
 	}
 
-	collectorPorts, unresolvedErr := resolveCollectorPorts(ctx, r.reader(), eligibleCollectors)
+	r.lastResolvedPortsMu.Lock()
+	if r.lastResolvedPorts == nil {
+		r.lastResolvedPorts = make(map[types.UID][]collectorconfig.ReceiverPort)
+	}
+	collectorPorts, unresolvedErr := resolveCollectorPorts(ctx, r.reader(), eligibleCollectors, r.lastResolvedPorts)
+	r.lastResolvedPortsMu.Unlock()
 	if unresolvedErr != nil && !errors.Is(unresolvedErr, collectorconfig.ErrUnresolvedEndpoint) {
 		log.Error(unresolvedErr, "unable to resolve collector receiver ports for xDS update")
 		return ctrl.Result{}, unresolvedErr
@@ -394,14 +407,20 @@ func parseLabelSelector(raw string) map[string]string {
 }
 
 // resolveCollectorPorts resolves each collector's receiver ports once per reconcile. A collector whose spec has
-// unresolvable endpoints is logged and keeps the ports that did resolve (or the OTLP defaults), so one
-// misconfigured collector cannot block routing for the others; the full result is then returned together with an
-// error wrapping collectorconfig.ErrUnresolvedEndpoint so the caller can retry. Any other error (e.g. failing to
-// read a referenced ConfigMap or Secret) returns no ports so the last good snapshot is left in place.
+// unresolvable endpoints is logged and keeps the ports that did resolve, merged with its last fully resolved ports
+// from lastResolved (or the OTLP defaults if it has neither), so one misconfigured collector cannot block routing
+// for the others and a deleted env source does not cut traffic to pods still running with the old value. The full
+// result is then returned together with an error wrapping collectorconfig.ErrUnresolvedEndpoint so the caller can
+// retry. Any other error (e.g. failing to read a referenced ConfigMap or Secret) returns no ports so the last good
+// snapshot is left in place.
+//
+// lastResolved may be nil. Otherwise it is updated with each fully resolved collector, and entries for collectors
+// not in collectors are removed.
 func resolveCollectorPorts(
 	ctx context.Context,
 	reader client.Reader,
 	collectors []otelv1beta1.OpenTelemetryCollector,
+	lastResolved map[types.UID][]collectorconfig.ReceiverPort,
 ) ([]xds.CollectorPorts, error) {
 	log := logger.FromContext(ctx)
 	result := make([]xds.CollectorPorts, 0, len(collectors))
@@ -412,16 +431,61 @@ func resolveCollectorPorts(
 			return nil, fmt.Errorf("collector %s/%s: %w", collector.Namespace, collector.Name, err)
 		}
 		if err != nil {
+			previous := lastResolved[collector.UID]
 			log.Error(err, "skipping unresolvable receiver endpoints for xDS",
-				"collector", collector.Name, "namespace", collector.Namespace)
+				"collector", collector.Name, "namespace", collector.Namespace, "keptPreviousPorts", previous)
 			unresolved = append(unresolved, fmt.Errorf("collector %s/%s: %w", collector.Namespace, collector.Name, err))
+			ports = mergeReceiverPorts(ports, previous)
+		} else if lastResolved != nil {
+			lastResolved[collector.UID] = ports
 		}
 		if len(ports) == 0 {
 			ports = collectorconfig.DefaultReceiverPorts()
 		}
 		result = append(result, xds.CollectorPorts{Collector: collector, Ports: ports})
 	}
+	if lastResolved != nil {
+		current := make(map[types.UID]struct{}, len(collectors))
+		for _, collector := range collectors {
+			current[collector.UID] = struct{}{}
+		}
+		maps.DeleteFunc(lastResolved, func(uid types.UID, _ []collectorconfig.ReceiverPort) bool {
+			_, ok := current[uid]
+			return !ok
+		})
+	}
 	return result, errors.Join(unresolved...)
+}
+
+// mergeReceiverPorts returns the union of two port sets sorted by port, combining protocol and receiver metadata
+// for ports present in both.
+func mergeReceiverPorts(a, b []collectorconfig.ReceiverPort) []collectorconfig.ReceiverPort {
+	if len(b) == 0 {
+		return a
+	}
+	byPort := make(map[uint32]collectorconfig.ReceiverPort, len(a)+len(b))
+	for _, p := range slices.Concat(a, b) {
+		merged, exists := byPort[p.Port]
+		if !exists {
+			byPort[p.Port] = collectorconfig.ReceiverPort{
+				Port:        p.Port,
+				EnableHTTP2: p.EnableHTTP2,
+				Receivers:   slices.Clone(p.Receivers),
+			}
+			continue
+		}
+		merged.EnableHTTP2 = merged.EnableHTTP2 || p.EnableHTTP2
+		for _, name := range p.Receivers {
+			if !slices.Contains(merged.Receivers, name) {
+				merged.Receivers = append(merged.Receivers, name)
+			}
+		}
+		slices.Sort(merged.Receivers)
+		byPort[p.Port] = merged
+	}
+	return slices.SortedFunc(maps.Values(byPort), func(x, y collectorconfig.ReceiverPort) int {
+		return cmp.Compare(x.Port, y.Port)
+	})
 }
 
 func discoveredCollectorPorts(collectors []xds.CollectorPorts) []uint32 {

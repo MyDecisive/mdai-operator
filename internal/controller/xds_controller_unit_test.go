@@ -409,7 +409,7 @@ func TestResolveCollectorPortsFallsBackToDefaultPorts(t *testing.T) {
 		},
 	}
 
-	resolved, err := resolveCollectorPorts(t.Context(), nil, []otelv1beta1.OpenTelemetryCollector{collector})
+	resolved, err := resolveCollectorPorts(t.Context(), nil, []otelv1beta1.OpenTelemetryCollector{collector}, nil)
 	require.NoError(t, err)
 	assert.Equal(t, []uint32{4317, 4318}, discoveredCollectorPorts(resolved))
 }
@@ -475,7 +475,7 @@ func TestResolveCollectorPortsResolvesEnvironmentEndpointPorts(t *testing.T) {
 				},
 			}
 
-			resolved, err := resolveCollectorPorts(t.Context(), cl, []otelv1beta1.OpenTelemetryCollector{collector})
+			resolved, err := resolveCollectorPorts(t.Context(), cl, []otelv1beta1.OpenTelemetryCollector{collector}, nil)
 			require.NoError(t, err)
 			assert.Equal(t, tt.want, discoveredCollectorPorts(resolved))
 		})
@@ -496,7 +496,7 @@ func TestResolveCollectorPortsIsolatesUnresolvableCollector(t *testing.T) {
 		"datadog": map[string]any{"endpoint": "0.0.0.0:${env:MISSING_PORT}"},
 	})
 
-	resolved, err := resolveCollectorPorts(t.Context(), nil, []otelv1beta1.OpenTelemetryCollector{good, partial, broken})
+	resolved, err := resolveCollectorPorts(t.Context(), nil, []otelv1beta1.OpenTelemetryCollector{good, partial, broken}, nil)
 	require.ErrorIs(t, err, collectorconfig.ErrUnresolvedEndpoint)
 	require.ErrorContains(t, err, "collector mdai/partial")
 	require.ErrorContains(t, err, "collector mdai/broken")
@@ -511,6 +511,66 @@ func TestResolveCollectorPortsIsolatesUnresolvableCollector(t *testing.T) {
 	assert.Equal(t, "broken", resolved[2].Collector.Name)
 	assert.Equal(t, collectorconfig.DefaultReceiverPorts(), resolved[2].Ports,
 		"a collector with no resolvable endpoints falls back to the OTLP defaults")
+}
+
+func TestResolveCollectorPortsKeepsLastResolvedPortsWhenEnvSourceDisappears(t *testing.T) {
+	scheme := runtime.NewScheme()
+	require.NoError(t, corev1.AddToScheme(scheme))
+	portsConfigMap := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{Name: "collector-ports", Namespace: "mdai"},
+		Data:       map[string]string{"PORT": "14268"},
+	}
+	withConfigMap := fake.NewClientBuilder().WithScheme(scheme).WithObjects(portsConfigMap).Build()
+	withoutConfigMap := fake.NewClientBuilder().WithScheme(scheme).Build()
+
+	gateway := xdsCollectorWithReceivers("gateway", []corev1.EnvFromSource{{
+		ConfigMapRef: &corev1.ConfigMapEnvSource{
+			LocalObjectReference: corev1.LocalObjectReference{Name: "collector-ports"},
+		},
+	}}, map[string]any{
+		"datadog": map[string]any{"endpoint": "0.0.0.0:${env:PORT}"},
+		"zipkin":  map[string]any{"endpoint": ":9411"},
+	})
+	gateway.UID = "gateway-uid"
+	other := xdsCollectorWithReceivers("other", nil, map[string]any{
+		"otlp": map[string]any{"endpoint": ":4318"},
+	})
+	other.UID = "other-uid"
+
+	lastResolved := map[types.UID][]collectorconfig.ReceiverPort{}
+
+	resolved, err := resolveCollectorPorts(t.Context(), withConfigMap, []otelv1beta1.OpenTelemetryCollector{gateway, other}, lastResolved)
+	require.NoError(t, err)
+	assert.Equal(t, []uint32{9411, 14268}, collectorconfig.ReceiverPortNumbers(resolved[0].Ports))
+	require.Contains(t, lastResolved, gateway.UID)
+	require.Contains(t, lastResolved, other.UID)
+
+	resolved, err = resolveCollectorPorts(t.Context(), withoutConfigMap, []otelv1beta1.OpenTelemetryCollector{gateway}, lastResolved)
+	require.ErrorIs(t, err, collectorconfig.ErrUnresolvedEndpoint)
+	require.Len(t, resolved, 1)
+	assert.Equal(t, []uint32{9411, 14268}, collectorconfig.ReceiverPortNumbers(resolved[0].Ports),
+		"ports resolved earlier are kept while the env source is missing")
+	assert.Equal(t, []uint32{9411, 14268}, collectorconfig.ReceiverPortNumbers(lastResolved[gateway.UID]),
+		"an unresolved reconcile does not overwrite the last fully resolved ports")
+	assert.NotContains(t, lastResolved, other.UID, "entries for collectors that are gone are pruned")
+}
+
+func TestMergeReceiverPorts(t *testing.T) {
+	current := []collectorconfig.ReceiverPort{
+		{Port: 4318, EnableHTTP2: false, Receivers: []string{"otlp"}},
+		{Port: 9411, EnableHTTP2: false, Receivers: []string{"zipkin"}},
+	}
+	previous := []collectorconfig.ReceiverPort{
+		{Port: 4317, EnableHTTP2: true, Receivers: []string{"otlp"}},
+		{Port: 9411, EnableHTTP2: true, Receivers: []string{"jaeger"}},
+	}
+
+	assert.Equal(t, []collectorconfig.ReceiverPort{
+		{Port: 4317, EnableHTTP2: true, Receivers: []string{"otlp"}},
+		{Port: 4318, EnableHTTP2: false, Receivers: []string{"otlp"}},
+		{Port: 9411, EnableHTTP2: true, Receivers: []string{"jaeger", "zipkin"}},
+	}, mergeReceiverPorts(current, previous))
+	assert.Equal(t, current, mergeReceiverPorts(current, nil))
 }
 
 func TestResolveCollectorPortsReturnsTransientReadErrors(t *testing.T) {
@@ -533,7 +593,7 @@ func TestResolveCollectorPortsReturnsTransientReadErrors(t *testing.T) {
 		"datadog": map[string]any{"endpoint": "0.0.0.0:${env:PORT}"},
 	})
 
-	_, err := resolveCollectorPorts(t.Context(), cl, []otelv1beta1.OpenTelemetryCollector{collector})
+	_, err := resolveCollectorPorts(t.Context(), cl, []otelv1beta1.OpenTelemetryCollector{collector}, nil)
 	require.ErrorIs(t, err, readErr)
 	assert.NotErrorIs(t, err, collectorconfig.ErrUnresolvedEndpoint)
 }

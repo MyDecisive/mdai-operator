@@ -27,7 +27,9 @@ const (
 // as opposed to a transient failure reading a referenced ConfigMap or Secret.
 var ErrUnresolvedEndpoint = errors.New("unresolved receiver endpoint port")
 
-var endpointPortEnvRef = regexp.MustCompile(`(?:^|:)\$\{(?:env:)?([A-Za-z_][A-Za-z0-9_]*)(?::-(\d+))?\}$`)
+// endpointPortEnvRef matches an env reference that is either the whole endpoint (${env:ENDPOINT}) or its port
+// (host:${env:PORT}), with an optional :-default.
+var endpointPortEnvRef = regexp.MustCompile(`(?:^|:)\$\{(?:env:)?([A-Za-z_][A-Za-z0-9_]*)(?::-([^}]*))?\}$`)
 
 // ReceiverPort is a collector receiver port plus protocol information needed by xDS.
 type ReceiverPort struct {
@@ -116,7 +118,8 @@ func PreferredReceiverPortNumbers(ports []ReceiverPort) []uint32 {
 	return ReceiverPortNumbers(ports)
 }
 
-// ResolveEndpointPort resolves the TCP port for a static endpoint or a final ${env:...} port reference.
+// ResolveEndpointPort resolves the TCP port for a static endpoint, an endpoint that is entirely an ${env:...}
+// reference (whose value is host:port or a bare port), or a final ${env:...} port reference.
 // Errors caused by the collector spec itself (missing or invalid variables, missing non-optional sources) wrap
 // ErrUnresolvedEndpoint.
 func ResolveEndpointPort(
@@ -129,9 +132,15 @@ func ResolveEndpointPort(
 		return port, true, nil
 	}
 
-	matches := endpointPortEnvRef.FindStringSubmatch(strings.TrimSpace(endpoint))
+	endpoint = strings.TrimSpace(endpoint)
+	matches := endpointPortEnvRef.FindStringSubmatch(endpoint)
 	if matches == nil {
 		return 0, false, nil
+	}
+	// A reference covering the whole endpoint expands to host:port; one after "host:" expands to the port alone.
+	parseValue := parsePort
+	if matches[0] == endpoint {
+		parseValue = StaticEndpointPort
 	}
 
 	envName := matches[1]
@@ -141,13 +150,13 @@ func ResolveEndpointPort(
 	}
 	if !ok {
 		if matches[2] != "" {
-			port, ok := parsePort(matches[2])
+			port, ok := parseValue(matches[2])
 			return port, ok, nil
 		}
 		return 0, false, fmt.Errorf("%w: environment variable %q is not resolvable from spec.env or spec.envFrom", ErrUnresolvedEndpoint, envName)
 	}
 
-	port, ok := parsePort(value)
+	port, ok := parseValue(value)
 	if !ok {
 		// The value is deliberately omitted: it may come from a Secret.
 		return 0, false, fmt.Errorf("%w: environment variable %q is not a valid TCP port", ErrUnresolvedEndpoint, envName)

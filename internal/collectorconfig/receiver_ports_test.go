@@ -79,6 +79,26 @@ func TestResolveEndpointPortFromCollectorEnvironment(t *testing.T) {
 			wantOK:   true,
 		},
 		{
+			name:     "whole endpoint env host and port",
+			endpoint: "${env:OTLP_ENDPOINT}",
+			env:      []corev1.EnvVar{{Name: "OTLP_ENDPOINT", Value: "0.0.0.0:4317"}},
+			wantPort: 4317,
+			wantOK:   true,
+		},
+		{
+			name:     "whole endpoint env bare port",
+			endpoint: "${OTLP_ENDPOINT}",
+			env:      []corev1.EnvVar{{Name: "OTLP_ENDPOINT", Value: "4318"}},
+			wantPort: 4318,
+			wantOK:   true,
+		},
+		{
+			name:     "whole endpoint env host and port default",
+			endpoint: "${env:OTLP_ENDPOINT:-0.0.0.0:4317}",
+			wantPort: 4317,
+			wantOK:   true,
+		},
+		{
 			name:     "configmap key ref",
 			endpoint: "0.0.0.0:${env:PORT}",
 			env: []corev1.EnvVar{{
