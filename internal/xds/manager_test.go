@@ -12,6 +12,7 @@ import (
 	cachev3 "github.com/envoyproxy/go-control-plane/pkg/cache/v3"
 	"github.com/envoyproxy/go-control-plane/pkg/resource/v3"
 	hubv1 "github.com/mydecisive/mdai-operator/api/v1"
+	"github.com/mydecisive/mdai-operator/internal/collectorconfig"
 	otelv1beta1 "github.com/open-telemetry/opentelemetry-operator/apis/v1beta1"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -28,7 +29,7 @@ func TestUpdateSnapshotAddsWildcardFallbackForSharedPort(t *testing.T) {
 		newCollector("beta", "mdai", 4317),
 	}
 
-	err := manager.UpdateSnapshot(t.Context(), "envoy-hub-proxy", collectors, nil)
+	err := manager.UpdateSnapshot(t.Context(), "envoy-hub-proxy", withPorts(t, collectors), nil)
 	require.NoError(t, err)
 
 	snapshot, err := manager.cache.GetSnapshot("envoy-hub-proxy")
@@ -108,7 +109,7 @@ func TestUpdateSnapshotUsesValidatorServiceFromTelemetryValidationStatus(t *test
 		},
 	}
 
-	err := manager.UpdateSnapshot(t.Context(), "envoy-hub-proxy", collectors, validations)
+	err := manager.UpdateSnapshot(t.Context(), "envoy-hub-proxy", withPorts(t, collectors), validations)
 	require.NoError(t, err)
 
 	snapshot, err := manager.cache.GetSnapshot("envoy-hub-proxy")
@@ -153,7 +154,7 @@ func TestUpdateSnapshotSkipsValidatorMirrorUntilValidatorServiceReady(t *testing
 		},
 	}
 
-	err := manager.UpdateSnapshot(t.Context(), "envoy-hub-proxy", collectors, validations)
+	err := manager.UpdateSnapshot(t.Context(), "envoy-hub-proxy", withPorts(t, collectors), validations)
 	require.NoError(t, err)
 
 	snapshot, err := manager.cache.GetSnapshot("envoy-hub-proxy")
@@ -192,7 +193,7 @@ func TestUpdateSnapshotUsesCollectorListenerPortForValidatorMirror(t *testing.T)
 		},
 	}
 
-	err := manager.UpdateSnapshot(t.Context(), "envoy-hub-proxy", collectors, validations)
+	err := manager.UpdateSnapshot(t.Context(), "envoy-hub-proxy", withPorts(t, collectors), validations)
 	require.NoError(t, err)
 
 	snapshot, err := manager.cache.GetSnapshot("envoy-hub-proxy")
@@ -255,7 +256,7 @@ func TestUpdateSnapshotUsesUniqueMirrorClusterNamesPerValidation(t *testing.T) {
 		},
 	}
 
-	err := manager.UpdateSnapshot(t.Context(), "envoy-hub-proxy", collectors, validations)
+	err := manager.UpdateSnapshot(t.Context(), "envoy-hub-proxy", withPorts(t, collectors), validations)
 	require.NoError(t, err)
 
 	snapshot, err := manager.cache.GetSnapshot("envoy-hub-proxy")
@@ -287,7 +288,7 @@ func TestUpdateSnapshotSetsHTTP2UpstreamProtocolOptionsOnClusters(t *testing.T) 
 		newCollector("gateway", "mdai", 4317),
 	}
 
-	err := manager.UpdateSnapshot(t.Context(), "envoy-hub-proxy", collectors, nil)
+	err := manager.UpdateSnapshot(t.Context(), "envoy-hub-proxy", withPorts(t, collectors), nil)
 	require.NoError(t, err)
 
 	snapshot, err := manager.cache.GetSnapshot("envoy-hub-proxy")
@@ -319,7 +320,7 @@ func TestUpdateSnapshotDoesNotForceHTTP2ForNonGRPCPorts(t *testing.T) {
 		newCollectorWithProtocol("gateway", "mdai", "http", 4318),
 	}
 
-	err := manager.UpdateSnapshot(t.Context(), "envoy-hub-proxy", collectors, nil)
+	err := manager.UpdateSnapshot(t.Context(), "envoy-hub-proxy", withPorts(t, collectors), nil)
 	require.NoError(t, err)
 
 	snapshot, err := manager.cache.GetSnapshot("envoy-hub-proxy")
@@ -363,7 +364,7 @@ func TestUpdateSnapshotPrefixesClusterNamesWithMdaiConnection(t *testing.T) {
 		newCollectorWithApp("gateway", "mdai", "my-hub"),
 	}
 
-	err := manager.UpdateSnapshot(t.Context(), "envoy-hub-proxy", collectors, nil)
+	err := manager.UpdateSnapshot(t.Context(), "envoy-hub-proxy", withPorts(t, collectors), nil)
 	require.NoError(t, err)
 
 	snapshot, err := manager.cache.GetSnapshot("envoy-hub-proxy")
@@ -403,7 +404,7 @@ func TestUpdateSnapshotPrefixesValidatorAndShadowClusterNamesWithMdaiConnection(
 		},
 	}
 
-	err := manager.UpdateSnapshot(t.Context(), "envoy-hub-proxy", collectors, validations)
+	err := manager.UpdateSnapshot(t.Context(), "envoy-hub-proxy", withPorts(t, collectors), validations)
 	require.NoError(t, err)
 
 	snapshot, err := manager.cache.GetSnapshot("envoy-hub-proxy")
@@ -429,7 +430,7 @@ func TestUpdateSnapshotPrefixesWildcardDefaultClusterWithMdaiConnection(t *testi
 		newCollectorWithApp("beta", "mdai", "my-hub"),
 	}
 
-	err := manager.UpdateSnapshot(t.Context(), "envoy-hub-proxy", collectors, nil)
+	err := manager.UpdateSnapshot(t.Context(), "envoy-hub-proxy", withPorts(t, collectors), nil)
 	require.NoError(t, err)
 
 	snapshot, err := manager.cache.GetSnapshot("envoy-hub-proxy")
@@ -495,4 +496,16 @@ func newCollectorWithProtocol(name, namespace, protocol string, port uint32) ote
 			},
 		},
 	}
+}
+
+// withPorts resolves receiver ports the way the xDS controller does for collectors with static endpoints.
+func withPorts(t *testing.T, collectors []otelv1beta1.OpenTelemetryCollector) []CollectorPorts {
+	t.Helper()
+	result := make([]CollectorPorts, 0, len(collectors))
+	for _, c := range collectors {
+		ports, err := collectorconfig.ReceiverPorts(t.Context(), nil, c)
+		require.NoError(t, err)
+		result = append(result, CollectorPorts{Collector: c, Ports: ports})
+	}
+	return result
 }
