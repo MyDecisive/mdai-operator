@@ -20,7 +20,10 @@ import (
 type TelemetryValidationReconciler struct {
 	client.Client
 
-	Scheme *runtime.Scheme
+	// APIReader reads user-owned ConfigMaps and Secrets referenced by collector env, which the manager's
+	// label-filtered cache cannot see. Falls back to Client when unset.
+	APIReader client.Reader
+	Scheme    *runtime.Scheme
 }
 
 // +kubebuilder:rbac:groups=hub.mydecisive.ai,resources=telemetryvalidations,verbs=get;list;watch;create;update;patch;delete
@@ -28,6 +31,7 @@ type TelemetryValidationReconciler struct {
 // +kubebuilder:rbac:groups=hub.mydecisive.ai,resources=telemetryvalidations/finalizers,verbs=update
 // +kubebuilder:rbac:groups=opentelemetry.io,resources=opentelemetrycollectors,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups="",resources=configmaps;services,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups="",resources=secrets,verbs=get
 // +kubebuilder:rbac:groups=apps,resources=deployments,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=monitoring.coreos.com,resources=servicemonitors,verbs=get;list;watch;create;update;patch;delete
 
@@ -79,4 +83,11 @@ func (r *TelemetryValidationReconciler) SetupWithManager(mgr ctrl.Manager) error
 		Owns(&corev1.Service{}).
 		Owns(&appsv1.Deployment{}).
 		Complete(r)
+}
+
+func (r *TelemetryValidationReconciler) reader() client.Reader {
+	if r.APIReader != nil {
+		return r.APIReader
+	}
+	return r.Client
 }

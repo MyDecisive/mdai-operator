@@ -365,7 +365,7 @@ func validatorExportBaseURL(validatorEndpoint string) string {
 }
 
 func pipelineSignal(name string) (hubv1.TelemetrySignal, bool) {
-	base := strings.SplitN(name, "/", 2)[0] //nolint:mnd
+	base, _, _ := strings.Cut(name, "/")
 	switch base {
 	case string(hubv1.TelemetrySignalMetrics):
 		return hubv1.TelemetrySignalMetrics, true
