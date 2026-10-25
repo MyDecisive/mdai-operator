@@ -1,0 +1,42 @@
+apiVersion: hub.mydecisive.ai/v1
+kind: MdaiHub
+metadata:
+  name: injection-test
+  namespace: mdai
+spec:
+  variables:
+    # Pattern 1 — scalar variables for single typed fields.
+    - key: sampling_rate
+      type: manual
+      dataType: int
+      default: 100
+      serializeAs:
+        - name: SAMPLING_RATE
+
+    - key: noisy_service
+      type: manual
+      dataType: string
+      default: "checkout"
+      serializeAs:
+        - name: NOISY_SERVICE
+
+    # Pattern 2 — `map` for string→string grouped values (headers, labels, attributes).
+    # Includes a leading-zero ID to prove Path A preserves it.
+    - key: tenant_headers
+      type: manual
+      dataType: map
+      default:
+        X-Tenant-Id: "01234"
+        X-Build: "v1.2.3"
+      serializeAs:
+        - name: TENANT_HEADERS
+
+    # Pattern 3 — `string` carrying JSON for mixed-type processor config.
+    # Same end-shape as the old map-with-numerics pattern, but the user
+    # controls types explicitly via JSON syntax.
+    - key: batch_config
+      type: manual
+      dataType: string
+      default: '{"send_batch_size":100,"timeout":"15s"}'
+      serializeAs:
+        - name: BATCH_CONFIG

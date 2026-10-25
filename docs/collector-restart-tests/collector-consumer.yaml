@@ -1,0 +1,29 @@
+apiVersion: opentelemetry.io/v1beta1
+kind: OpenTelemetryCollector
+metadata:
+  name: consumer
+  namespace: mdai
+  labels:
+    mydecisive.ai/hub-name: restart-test
+spec:
+  envFrom:
+    - configMapRef:
+        name: restart-test-variables
+  config:
+    receivers:
+      otlp:
+        protocols:
+          grpc:
+            endpoint: 0.0.0.0:4317
+    processors:
+      probabilistic_sampler:
+        sampling_percentage: "${env:SAMPLED_RATE}"
+    exporters:
+      debug:
+        verbosity: detailed
+    service:
+      pipelines:
+        traces:
+          receivers: [otlp]
+          processors: [probabilistic_sampler]
+          exporters: [debug]
